@@ -61,6 +61,12 @@ Replace that section with formatted markdown:
 |----------|--------|
 | ... | ... |
 
+**stolostron/cluster-api-installer**
+
+| Workflow | Status |
+|----------|--------|
+| ... | ... |
+
 Manual checks:
 - [ ] [OpenShift CI](https://prow.ci.openshift.org/?job=periodic-ci-stolostron-capi-tests-*)
 - [ ] [ACM Jenkins](https://jenkins-csb-rhacm-tests.dno.corp.redhat.com/job/CI-Jobs/job/capz_tests/)
@@ -78,6 +84,9 @@ Manual checks:
 - ✅ All clear
 
 **stolostron/azure-service-operator**
+- ✅ All clear
+
+**stolostron/cluster-api-installer**
 - ✅ All clear
 ```
 

@@ -1,10 +1,10 @@
 ---
-description: Full status report for all three CAPZ stolostron repos — GHA workflows, issues, PRs, security alerts
+description: Full status report for all four CAPZ stolostron repos — GHA workflows, issues, PRs, security alerts
 ---
 
 # CAPZ Status Check
 
-Full status report across `stolostron/capi-tests`, `stolostron/cluster-api-provider-azure`, and `stolostron/azure-service-operator`.
+Full status report across `stolostron/capi-tests`, `stolostron/cluster-api-provider-azure`, `stolostron/azure-service-operator`, and `stolostron/cluster-api-installer`.
 
 ## Usage
 
@@ -110,6 +110,28 @@ Note: Dependency Graph and dynamic CodeQL are dynamic workflows with no programm
   - [ ] https://github.com/stolostron/azure-service-operator/actions
 ```
 
+**stolostron/cluster-api-installer:**
+```bash
+gh run list --repo stolostron/cluster-api-installer --workflow "chart-tests-minikube.yaml" --limit 1 --json status,conclusion,createdAt,name
+gh run list --repo stolostron/cluster-api-installer --workflow "ci-mce-capi-webhook-config.yaml" --limit 1 --json status,conclusion,createdAt,name
+gh run list --repo stolostron/cluster-api-installer --workflow "crons.yml" --limit 1 --json status,conclusion,createdAt,name
+gh run list --repo stolostron/cluster-api-installer --workflow "ffwd-branch.yaml" --limit 1 --json status,conclusion,createdAt,name
+gh run list --repo stolostron/cluster-api-installer --workflow "sync-providers.yaml" --limit 1 --json status,conclusion,createdAt,name
+gh run list --repo stolostron/cluster-api-installer --workflow "test-helm-capi-capa-kind.yaml" --limit 1 --json status,conclusion,createdAt,name
+```
+
+Also check Dependabot update job results:
+```bash
+gh api "repos/stolostron/cluster-api-installer/actions/runs?per_page=10&event=dynamic" \
+  --jq '[.workflow_runs[] | select(.name | startswith("Dependabot"))] | first | {name, conclusion, created_at}'
+```
+Show result as `Dependabot Updates` row in the table.
+
+Note: Dependency Graph and dynamic CodeQL are dynamic workflows with no programmatic access — check via GitHub UI:
+```
+  - [ ] https://github.com/stolostron/cluster-api-installer/actions
+```
+
 Print results grouped by repo as a table: ✅ passing / ❌ failing / ⏳ running / ⚪ no runs for each.
 
 ### 2. Repo Status
@@ -127,6 +149,7 @@ For each of the three repos, check and print:
 gh issue list --repo stolostron/capi-tests --state open --json number,title,url --jq '.[] | "  - #\(.number) \(.title) — \(.url)"'
 gh issue list --repo stolostron/cluster-api-provider-azure --state open --json number,title,url --jq '.[] | "  - #\(.number) \(.title) — \(.url)"'
 gh issue list --repo stolostron/azure-service-operator --state open --json number,title,url --jq '.[] | "  - #\(.number) \(.title) — \(.url)"'
+gh issue list --repo stolostron/cluster-api-installer --state open --json number,title,url --jq '.[] | "  - #\(.number) \(.title) — \(.url)"'
 ```
 
 If no open issues for a repo, print: `  (none)`
@@ -137,6 +160,7 @@ If no open issues for a repo, print: `  (none)`
 gh pr list --repo stolostron/capi-tests --state open --json number,title,url --jq '.[] | "  - #\(.number) \(.title) — \(.url)"'
 gh pr list --repo stolostron/cluster-api-provider-azure --state open --json number,title,url --jq '.[] | "  - #\(.number) \(.title) — \(.url)"'
 gh pr list --repo stolostron/azure-service-operator --state open --json number,title,url --jq '.[] | "  - #\(.number) \(.title) — \(.url)"'
+gh pr list --repo stolostron/cluster-api-installer --state open --json number,title,url --jq '.[] | "  - #\(.number) \(.title) — \(.url)"'
 ```
 
 If no open PRs for a repo, print: `  (none)`
@@ -147,6 +171,7 @@ If no open PRs for a repo, print: `  (none)`
 gh api repos/stolostron/capi-tests/code-scanning/alerts?state=open --jq '.[] | "  - \(.rule.description // .rule.id) — \(.html_url)"' 2>/dev/null || echo "  (no access or none)"
 gh api repos/stolostron/cluster-api-provider-azure/code-scanning/alerts?state=open --jq '.[] | "  - \(.rule.description // .rule.id) — \(.html_url)"' 2>/dev/null || echo "  (no access or none)"
 gh api repos/stolostron/azure-service-operator/code-scanning/alerts?state=open --jq '.[] | "  - \(.rule.description // .rule.id) — \(.html_url)"' 2>/dev/null || echo "  (no access or none)"
+gh api repos/stolostron/cluster-api-installer/code-scanning/alerts?state=open --jq '.[] | "  - \(.rule.description // .rule.id) — \(.html_url)"' 2>/dev/null || echo "  (no access or none)"
 ```
 
 Also check Dependabot alerts:
@@ -154,6 +179,7 @@ Also check Dependabot alerts:
 gh api repos/stolostron/capi-tests/dependabot/alerts?state=open --jq '.[] | "  - \(.security_advisory.summary) — \(.html_url)"' 2>/dev/null || echo "  (no access or none)"
 gh api repos/stolostron/cluster-api-provider-azure/dependabot/alerts?state=open --jq '.[] | "  - \(.security_advisory.summary) — \(.html_url)"' 2>/dev/null || echo "  (no access or none)"
 gh api repos/stolostron/azure-service-operator/dependabot/alerts?state=open --jq '.[] | "  - \(.security_advisory.summary) — \(.html_url)"' 2>/dev/null || echo "  (no access or none)"
+gh api repos/stolostron/cluster-api-installer/dependabot/alerts?state=open --jq '.[] | "  - \(.security_advisory.summary) — \(.html_url)"' 2>/dev/null || echo "  (no access or none)"
 ```
 
 Print format per repo:

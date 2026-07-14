@@ -45,7 +45,16 @@ Run `/morning-capz-status-check` inline — executes the full CAPZ status check 
 
 Ask: "Any red flags to address before starting your day?"
 
-### 4. Show priorities
+### 4. Priority Status Check
+
+Read and display the priority status check page:
+```bash
+cat "$OBSIDIAN_VAULT/Priority Status Check.md"
+```
+
+Show the checklist and ask: "Any items to update or mark as done?"
+
+### 5. Show priorities
 
 Print:
 ```
@@ -58,7 +67,7 @@ Print:
 
 Read the priorities from the `## Priorities` section of the plan file.
 
-### 5. Show today's actions
+### 6. Show today's actions
 
 Read the `## Daily Plan` section and find today's subsection (### Tuesday, ### Wednesday, ### Thursday).
 
@@ -74,7 +83,7 @@ If today has no planned actions:
     Focus on moving your priorities forward.
 ```
 
-### 6. Ask for focus
+### 7. Ask for focus
 
 Ask: "What will you focus on first?"
 
