@@ -98,7 +98,7 @@ Before executing any multi-step task or workflow:
 
 1. **Restate understanding**: Briefly explain how you understood the user's instructions
 2. **State your plan**: List what you're going to do (steps, tools, target repos)
-3. **Wait for confirmation**: Do not proceed until the user confirms
+3. **Stop and wait**: Do NOT make any tool calls, edits, or commands. End your message after steps 1–2 and wait for the user to explicitly confirm (e.g., "go", "yes", "proceed"). Silence or a new user message is not confirmation.
 
 This applies to:
 - Slash commands and skills (e.g., `/implement-issue`, `/prepare-worktree`)
