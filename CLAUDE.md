@@ -92,6 +92,21 @@ When executing a slash command (skill), print clear banners so the user can quic
   ━━━ ✔ Finished /command-name ━━━━━━━━━━━━━━━━
   ```
 
+## Task execution discipline
+
+Before executing any multi-step task or workflow:
+
+1. **Restate understanding**: Briefly explain how you understood the user's instructions
+2. **State your plan**: List what you're going to do (steps, tools, target repos)
+3. **Wait for confirmation**: Do not proceed until the user confirms
+
+This applies to:
+- Slash commands and skills (e.g., `/implement-issue`, `/prepare-worktree`)
+- Any task involving multiple tools, git operations, or external API calls
+- Work that spans multiple repositories or branches
+
+**Skill invocation rule**: When the user references a skill or slash command by name, **always invoke it via the Skill tool**. Never read the skill file and manually approximate its steps — the skill exists precisely to ensure consistent execution. If you need to deviate from a skill's steps, explain why and get confirmation first.
+
 ## Git workflow
 
 - Always create a feature branch and open a pull request for changes
