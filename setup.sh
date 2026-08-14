@@ -204,10 +204,35 @@ for script in "$SCRIPT_DIR/bin/"*; do
     fi
 done
 
+# Step 8: Configure Antigravity / Gemini CLI (~/.gemini/config)
+GEMINI_CONFIG_DIR="$HOME/.gemini/config"
+GEMINI_RULES_DIR="$GEMINI_CONFIG_DIR/rules"
+mkdir -p "$GEMINI_RULES_DIR"
+
+if [ -L "$GEMINI_CONFIG_DIR/GEMINI.md" ]; then
+    CURRENT_TARGET="$(readlink "$GEMINI_CONFIG_DIR/GEMINI.md")"
+    if [ "$CURRENT_TARGET" = "$SCRIPT_DIR/GEMINI.md" ]; then
+        echo "[OK] Antigravity GEMINI.md symlink already correct"
+    else
+        echo "[UPDATE] Antigravity GEMINI.md symlink points to $CURRENT_TARGET, updating..."
+        rm "$GEMINI_CONFIG_DIR/GEMINI.md"
+        ln -s "$SCRIPT_DIR/GEMINI.md" "$GEMINI_CONFIG_DIR/GEMINI.md"
+        echo "[OK] Antigravity GEMINI.md symlink updated"
+    fi
+elif [ -f "$GEMINI_CONFIG_DIR/GEMINI.md" ]; then
+    echo "[MIGRATE] Replacing Antigravity GEMINI.md with symlink..."
+    mv "$GEMINI_CONFIG_DIR/GEMINI.md" "$GEMINI_CONFIG_DIR/GEMINI.md.backup"
+    ln -s "$SCRIPT_DIR/GEMINI.md" "$GEMINI_CONFIG_DIR/GEMINI.md"
+    echo "[OK] Antigravity GEMINI.md symlinked (backup at GEMINI.md.backup)"
+else
+    ln -s "$SCRIPT_DIR/GEMINI.md" "$GEMINI_CONFIG_DIR/GEMINI.md"
+    echo "[OK] Antigravity GEMINI.md symlinked"
+fi
+
 echo ""
 echo "=== Setup Complete ==="
 echo ""
-echo "Installed:"
+echo "Installed for Claude Code:"
 echo "  - Commands:   $CLAUDE_DIR/commands/ -> $SCRIPT_DIR/"
 echo "  - CLAUDE.md:  $CLAUDE_DIR/CLAUDE.md -> $SCRIPT_DIR/CLAUDE.md"
 echo "  - Statusline: $CLAUDE_DIR/statusline.sh -> $SCRIPT_DIR/statusline.sh"
@@ -216,7 +241,11 @@ echo "    - PreToolUse:   Block gh pr create (require confirmation)"
 echo "    - SessionStart: Show context on resume"
 echo "    - SessionStart: Auto-sync shared commands from GitHub"
 echo ""
-echo "Auto-sync: Every new Claude Code session will pull latest changes"
+echo "Installed for Antigravity / Gemini CLI:"
+echo "  - GEMINI.md:  $GEMINI_CONFIG_DIR/GEMINI.md -> $SCRIPT_DIR/GEMINI.md"
+echo ""
+echo "Auto-sync: Every new session will pull latest changes"
 echo "           from the claude-commands repo automatically."
 echo ""
-echo "Restart Claude Code to apply changes."
+echo "Restart Claude Code or Antigravity to apply changes."
+
