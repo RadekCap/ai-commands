@@ -31,6 +31,7 @@ When the user invokes any slash command (e.g., `/quick-pr`, `/sync-main`, `/fix-
 
 ---
 
+<!--
 ## English and Expression Coaching (ALWAYS ACTIVE)
 
 These instructions are mandatory in every session:
@@ -93,6 +94,7 @@ Clearer version: "[restructured explanation]"
 Tip: [what made the original unclear and how the improved version fixes it]
 ---
 ```
+-->
 
 ---
 

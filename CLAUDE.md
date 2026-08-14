@@ -11,6 +11,7 @@ Global preferences for Claude Code across all projects.
 - Pause before executing when clarification would help, and explain how I could express it more precisely next time
 - Provide this kind of feedback regularly - it's welcomed and appreciated
 
+<!--
 ## English and expression coaching (ALWAYS ACTIVE)
 
 These instructions are mandatory in every session. Do not skip them.
@@ -78,6 +79,7 @@ When running longer operations, alternate between English tips and explanation t
 **Explanation tip while we wait:**
 [A specific tip about structuring technical explanations, describing bugs, writing clear requirements, or communicating decisions — based on the user's recent messages]
 ---
+-->
 
 ## Slash command progress banners
 
