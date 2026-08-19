@@ -276,7 +276,39 @@ Automatically analyze a GitHub issue or JIRA ticket, implement the required chan
     - Verify the response (HTTP 201 = success)
     - If credentials are missing or the API call fails, log a warning but do not block the workflow
 
-15. **[JIRA only] Transition ticket to Review**
+15. **[JIRA only] Mention the PR in the ticket Description with a link**
+    - **Skip this step entirely for GitHub issues**
+    - After adding the web link, also reference the PR from within the JIRA ticket's **Description** field so the PR is discoverable inline, not only via the remote-links panel
+    - Read credentials from `credentials.json` at the repo root
+    - Fetch the current description first, then append a PR reference — never overwrite existing content:
+      ```bash
+      EMAIL=$(jq -r '.jira.email' credentials.json)
+      TOKEN=$(jq -r '.jira.token' credentials.json)
+      PR_URL="<the PR URL from step 13>"
+
+      # Fetch the current description (may be empty)
+      CURRENT=$(curl -s -u "$EMAIL:$TOKEN" \
+        "https://redhat.atlassian.net/rest/api/2/issue/<JIRA-KEY>?fields=description" \
+        | jq -r '.fields.description // ""')
+
+      # Skip if the PR link is already present (idempotent re-runs)
+      if printf '%s' "$CURRENT" | grep -qF "$PR_URL"; then
+        echo "PR link already present in description, skipping"
+      else
+        # Append a PR reference, preserving the existing description
+        NEW_DESCRIPTION=$(printf '%s\n\n----\n*Pull Request:* %s' "$CURRENT" "$PR_URL")
+        BODY=$(jq -n --arg d "$NEW_DESCRIPTION" '{fields: {description: $d}}')
+        curl -s -w "\n%{http_code}" -u "$EMAIL:$TOKEN" \
+          -H "Content-Type: application/json" \
+          -X PUT "https://redhat.atlassian.net/rest/api/2/issue/<JIRA-KEY>" \
+          -d "$BODY"
+      fi
+      ```
+    - Verify the response (HTTP 204 = success)
+    - This step **mutates** the JIRA ticket; obtain explicit user confirmation before running it, and preserve the original description content
+    - If credentials are missing or the API call fails, log a warning but do not block the workflow
+
+16. **[JIRA only] Transition ticket to Review**
     - **Skip this step entirely for GitHub issues**
     - After creating the PR and adding the web link, move the JIRA ticket to "Review" status
     - Read credentials from `credentials.json` at the repo root
@@ -302,7 +334,7 @@ Automatically analyze a GitHub issue or JIRA ticket, implement the required chan
     - If no "Review" transition is available (ticket may already be in Review, or the workflow doesn't have one), log a warning but do not block the workflow
     - If credentials are missing or the API call fails, log a warning but do not block the workflow
 
-16. **[GitHub only] Post comment on the issue explaining the implementation**
+17. **[GitHub only] Post comment on the issue explaining the implementation**
     - **Skip this step entirely for JIRA tickets** (there is no GitHub issue to comment on)
     - After creating the PR, post a comment on the original GitHub issue
     - The comment should explain what was implemented, not just link to the PR
@@ -337,10 +369,10 @@ Automatically analyze a GitHub issue or JIRA ticket, implement the required chan
       )"
       ```
 
-17. **Provide summary to user**
+18. **Provide summary to user**
     - Display PR URL
     - **GitHub**: Display issue comment confirmation and link to issue
-    - **JIRA**: Display link to JIRA ticket (`https://redhat.atlassian.net/browse/<JIRA-KEY>`), confirm web link was added, and confirm ticket was moved to Review
+    - **JIRA**: Display link to JIRA ticket (`https://redhat.atlassian.net/browse/<JIRA-KEY>`), confirm web link was added, confirm the PR was referenced in the description, and confirm ticket was moved to Review
     - List files changed
     - Show test results
     - Remind user that CI will run automatically
@@ -415,6 +447,7 @@ After completing implementation, verify:
 - [ ] Branch pushed to remote
 - [ ] PR created successfully
 - [ ] [JIRA only] PR added as web link on JIRA ticket
+- [ ] [JIRA only] PR referenced in the ticket Description with a link
 - [ ] [JIRA only] Ticket transitioned to Review
 - [ ] [GitHub only] Issue comment posted explaining the implementation
 
