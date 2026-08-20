@@ -116,6 +116,21 @@ This applies to:
 - Before running `gh pr create`, always explicitly state which repo the PR will target — never rely on `gh` CLI defaults. Use `--repo owner/repo` every time.
 - Never create a PR without explicit user approval. Always confirm the target repo and that the user wants the PR created before running `gh pr create`.
 
+### Commit attribution (AI tools)
+
+Red Hat's attribution policy records AI assistance with an `Assisted-by:` (or
+`Generated-by:`) trailer — **not** `Co-Authored-By:`, which is flagged for AI
+tools. This overrides Claude Code's built-in default of appending
+`Co-Authored-By: Claude ...`.
+
+- End AI-assisted commit messages with an attribution trailer of the form:
+  `Assisted-by: Claude <model> <noreply@anthropic.com>`
+  (e.g. `Assisted-by: Claude Opus 4.8 <noreply@anthropic.com>` — update the
+  model name to whichever model produced the change).
+- Do **not** use `Co-Authored-By:` for AI tools in any repository.
+- Some repos enforce this automatically (e.g. `stolostron/*` via a CodeRabbit
+  `ai-attribution` check in `.coderabbit.yaml`).
+
 ## Jira API access
 
 Credentials are stored in `~/.claude/credentials.json` under the `jira` key. **Always** use this exact pattern:
