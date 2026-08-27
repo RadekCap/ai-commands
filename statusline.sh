@@ -37,6 +37,23 @@ if [ "$CTX_PCT" != "0" ] && [ -n "$CTX_PCT" ]; then
     CTX_FMT="ctx:${CTX_PCT}%"
 fi
 
+# Format weekly limit usage
+WEEKLY_PCT=$(echo "$input" | jq -r '
+  (
+    .rate_limits.seven_day.used_percentage //
+    (.rate_limits.seven_day.utilization | if . != null then . * 100 else empty end) //
+    .rate_limits.weekly.used_percentage //
+    (.rate_limits.weekly.utilization | if . != null then . * 100 else empty end) //
+    .rate_limits.seven_day_opus.used_percentage //
+    .rate_limits.seven_day_sonnet.used_percentage //
+    empty
+  )' 2>/dev/null | cut -d. -f1)
+
+WEEKLY_FMT=""
+if [ -n "$WEEKLY_PCT" ] && [ "$WEEKLY_PCT" != "null" ]; then
+    WEEKLY_FMT="7d:${WEEKLY_PCT}%"
+fi
+
 # Learning progress — supports multiple plans
 LEARN_FMT=""
 ACTIVE_PLAN_MARKER="$PROJECT_DIR/.claude/active-plan"
@@ -84,6 +101,7 @@ fi
 OUTPUT="[$MODEL] $DIR_NAME"
 [ -n "$BRANCH" ] && OUTPUT="$OUTPUT | $BRANCH"
 [ -n "$CTX_FMT" ] && OUTPUT="$OUTPUT | $CTX_FMT"
+[ -n "$WEEKLY_FMT" ] && OUTPUT="$OUTPUT | $WEEKLY_FMT"
 [ -n "$COST_FMT" ] && OUTPUT="$OUTPUT | $COST_FMT"
 [ -n "$LEARN_FMT" ] && OUTPUT="$OUTPUT | $LEARN_FMT"
 
