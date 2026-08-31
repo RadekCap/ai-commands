@@ -1,4 +1,4 @@
-# Claude Commands
+# AI Commands
 
 Shared Claude Code commands, hooks, and settings that work across all repositories and machines.
 
@@ -7,8 +7,8 @@ Shared Claude Code commands, hooks, and settings that work across all repositori
 ### A. New computer
 
 ```bash
-git clone git@github.com:RadekCap/claude-commands.git ~/git/claude-commands
-cd ~/git/claude-commands
+git clone git@github.com:RadekCap/ai-commands.git ~/git/ai-commands
+cd ~/git/ai-commands
 ./setup.sh
 ```
 
@@ -49,6 +49,7 @@ Nothing to do — updates are pulled automatically at the start of every Claude 
 | Hook | Trigger | What it does |
 |---|---|---|
 | `require-confirmation-before-pr.sh` | Before `gh pr create` | Forces Claude to show PR description and ask for approval |
+| `obsidian-auto-approve.sh` | Before Bash/Write/Edit | Auto-approves operations scoped to `$OBSIDIAN_VAULT` (no-op if unset) |
 | `on-resume.sh` | Session resume | Shows directory and branch context |
 | `sync-shared-commands.sh` | Every session start | Auto-pulls this repo from GitHub |
 

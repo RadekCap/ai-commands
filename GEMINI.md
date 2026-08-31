@@ -4,11 +4,11 @@ Global preferences for Antigravity CLI (`agy`) and Gemini agents across all proj
 
 ## Custom Slash Commands & Workflows
 
-All custom slash commands and automation workflows are defined as markdown files in `/Users/radoslavcap/git/claude-commands/`.
+All custom slash commands and automation workflows are defined as markdown files in `/Users/radoslavcap/git/ai-commands/`.
 
 When the user invokes any slash command (e.g., `/quick-pr`, `/sync-main`, `/fix-issue`, `/implement-issue`, `/prepare-worktree`, `/close-worktree`, `/daily-summary`, `/capz-status-check`, etc.):
 
-1. **Locate & Read Workflow**: Read the corresponding definition file at `/Users/radoslavcap/git/claude-commands/<command-name>.md`.
+1. **Locate & Read Workflow**: Read the corresponding definition file at `/Users/radoslavcap/git/ai-commands/<command-name>.md`.
 2. **Progress Banner**: At the start of execution, output:
    ```
    ━━━ ▶ Running /<command-name> ━━━━━━━━━━━━━━━━━

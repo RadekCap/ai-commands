@@ -1,5 +1,5 @@
 #!/bin/bash
-# SessionStart hook: auto-sync shared claude-commands repo
+# SessionStart hook: auto-sync shared ai-commands repo
 # Runs a fast-forward pull to get latest commands, hooks, and settings.
 # Silently succeeds if offline or already up to date.
 
