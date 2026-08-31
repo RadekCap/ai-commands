@@ -69,10 +69,11 @@ Summarize everything done in the current Claude Code session and save as an Obsi
 4. **Add diary cross-link**
    - Open or create `$OBSIDIAN_VAULT/Diary/<YYYY-MM-DD>.md`
    - If the file has no `## AI Sessions` section, append it
-   - Add a wikilink entry under that section with a time prefix:
+   - Add a wikilink entry under that section with a time prefix. Prefix the **alias** (the part after `|`) with the literal marker `[CC CLI]` so the source of the session is visible at a glance:
      ```markdown
-     - <HH:MM> [[<YYYY-MM-DD> <HH-MM> Session - <short description>|<project>: <short description>]]
+     - <HH:MM> [[<YYYY-MM-DD> <HH-MM> Session - <short description>|[CC CLI]<project>: <short description>]]
      ```
+   - **Note on the link target**: only the alias gets the `[CC CLI]` prefix — the wikilink target (the filename before `|`) stays unchanged. The literal brackets `[CC CLI]` render fine inside the alias because they are balanced and Obsidian only treats the closing `]]` as the link terminator.
    - **Sort entries chronologically**: after adding the new link, sort all entries under `## AI Sessions` by their `HH:MM` prefix (oldest first)
    - **Update session count in heading**: count all `- ` entries under the section and update the heading to `## AI Sessions (<count>)`
 
