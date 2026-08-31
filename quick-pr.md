@@ -8,7 +8,7 @@ Steps to perform:
 4. Stage all modified/added files and create a commit with a descriptive message. Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>` in the commit.
 5. Push the branch to origin with `-u`.
 6. Create a pull request using `gh pr create` with a concise title and a body containing only a `## Summary` section with bullet points. Do not include a Test plan section.
-7. Merge the pull request using `gh pr merge --merge`.
+7. Merge the pull request using `gh pr merge --rebase`.
 8. Switch back to main, pull latest, and delete the local feature branch.
 9. Print the merged PR URL and confirm completion.
 
