@@ -113,10 +113,10 @@ For each tracked repo, gather the following. Run all repos in parallel for speed
 
 ### Jira
 
-Read credentials from `credentials.json` in the claude-commands repo root (`/Users/radoslavcap/git/claude-commands/credentials.json`):
+Read credentials from `credentials.json` in the ai-commands repo root (`/Users/radoslavcap/git/ai-commands/credentials.json`):
 ```bash
-EMAIL=$(python3 -c "import json; d=json.load(open('/Users/radoslavcap/git/claude-commands/credentials.json')); print(d['jira']['email'])")
-TOKEN=$(python3 -c "import json; d=json.load(open('/Users/radoslavcap/git/claude-commands/credentials.json')); print(d['jira']['token'])")
+EMAIL=$(python3 -c "import json; d=json.load(open('/Users/radoslavcap/git/ai-commands/credentials.json')); print(d['jira']['email'])")
+TOKEN=$(python3 -c "import json; d=json.load(open('/Users/radoslavcap/git/ai-commands/credentials.json')); print(d['jira']['token'])")
 ```
 
 **Fallback**: If not found, try the capi-tests repo:
@@ -323,7 +323,7 @@ Note: Unlike other Obsidian commands, the daily summary uses a direct push to ma
    - Run all repo queries concurrently (use parallel Bash tool calls)
 
 3. **Gather Jira data**
-   - Read credentials (try claude-commands/credentials.json first, then capi-tests/.jira-credentials)
+   - Read credentials (try ai-commands/credentials.json first, then capi-tests/.jira-credentials)
    - Fetch updated, resolved, and transitioned issues via v3 search API
    - Run all three Jira queries in parallel
 
@@ -347,7 +347,7 @@ Note: Unlike other Obsidian commands, the daily summary uses a direct push to ma
 
 6. **Offer /quick-pr** (Phase 3 — always at the end)
    - After Phase 2 completes (whether the user saved to Obsidian or not), offer to run `/quick-pr` for any repos that have uncommitted changes from this session
-   - Typical repos with changes: `claude-commands` (if the command definition was updated), `obsidian-rh-acm` (if daily note was saved)
+   - Typical repos with changes: `ai-commands` (if the command definition was updated), `obsidian-rh-acm` (if daily note was saved)
    - Ask: "Run /quick-pr for changed repos? (y/n)"
    - If yes, run the quick-pr workflow for each repo with changes
 

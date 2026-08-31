@@ -1,10 +1,10 @@
 #!/bin/bash
-# Setup script for claude-commands
+# Setup script for ai-commands
 # Configures commands, hooks, statusline, CLAUDE.md, and settings for Claude Code.
 #
 # Usage:
-#   git clone git@github.com:RadekCap/claude-commands.git ~/git/claude-commands
-#   cd ~/git/claude-commands
+#   git clone git@github.com:RadekCap/ai-commands.git ~/git/ai-commands
+#   cd ~/git/ai-commands
 #   ./setup.sh
 #
 # What it does:
@@ -128,6 +128,7 @@ SHARED_CONFIG=$(jq -n \
     --arg pr_hook "$SCRIPT_DIR/hooks/require-confirmation-before-pr.sh" \
     --arg resume_hook "$SCRIPT_DIR/hooks/on-resume.sh" \
     --arg sync_hook "$SCRIPT_DIR/hooks/sync-shared-commands.sh" \
+    --arg obsidian_hook "$SCRIPT_DIR/hooks/obsidian-auto-approve.sh" \
     '{
         statusLine: {
             type: "command",
@@ -141,6 +142,16 @@ SHARED_CONFIG=$(jq -n \
                         {
                             type: "command",
                             command: $pr_hook
+                        }
+                    ]
+                },
+                {
+                    matcher: "Bash|Write|Edit",
+                    hooks: [
+                        {
+                            type: "command",
+                            command: $obsidian_hook,
+                            timeout: 5
                         }
                     ]
                 }
@@ -238,6 +249,7 @@ echo "  - CLAUDE.md:  $CLAUDE_DIR/CLAUDE.md -> $SCRIPT_DIR/CLAUDE.md"
 echo "  - Statusline: $CLAUDE_DIR/statusline.sh -> $SCRIPT_DIR/statusline.sh"
 echo "  - Hooks:"
 echo "    - PreToolUse:   Block gh pr create (require confirmation)"
+echo "    - PreToolUse:   Auto-approve Obsidian vault operations (needs \$OBSIDIAN_VAULT)"
 echo "    - SessionStart: Show context on resume"
 echo "    - SessionStart: Auto-sync shared commands from GitHub"
 echo ""
@@ -245,7 +257,7 @@ echo "Installed for Antigravity / Gemini CLI:"
 echo "  - GEMINI.md:  $GEMINI_CONFIG_DIR/GEMINI.md -> $SCRIPT_DIR/GEMINI.md"
 echo ""
 echo "Auto-sync: Every new session will pull latest changes"
-echo "           from the claude-commands repo automatically."
+echo "           from the ai-commands repo automatically."
 echo ""
 echo "Restart Claude Code or Antigravity to apply changes."
 
