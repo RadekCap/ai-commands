@@ -1,6 +1,6 @@
 # AI Commands
 
-Shared Claude Code commands, hooks, and settings that work across all repositories and machines.
+Shared Agent Skills, hooks, and settings for Claude Code, Codex, and Gemini across repositories and machines.
 
 ## TL;DR
 
@@ -22,7 +22,9 @@ Nothing to do — updates are pulled automatically at the start of every Claude 
 
 | What | How it works |
 |---|---|
-| Slash commands (`/cleanup`, `/sync-main`, etc.) | `~/.claude/commands/` symlinked to this repo |
+| Shared Agent Skills | Canonical workflows under `skills/<name>/SKILL.md` |
+| Claude commands (`/cleanup`, `/sync-main`, etc.) | Skills linked into `~/.claude/skills/`; legacy command links remain compatible |
+| Codex skills (`$cleanup`, `$sync-main`, etc.) | Skills linked into `~/.agents/skills/` |
 | Global instructions (coaching, git rules) | `~/.claude/CLAUDE.md` symlinked to this repo |
 | Hooks (PR confirmation, session resume, auto-sync) | Paths in `~/.claude/settings.json` |
 | Status line (model, dir, branch, cost) | `~/.claude/statusline.sh` |
@@ -53,11 +55,12 @@ Nothing to do — updates are pulled automatically at the start of every Claude 
 | `on-resume.sh` | Session resume | Shows directory and branch context |
 | `sync-shared-commands.sh` | Every session start | Auto-pulls this repo from GitHub |
 
-## Adding a new command
+## Adding a new shared skill
 
-1. Create `your-command.md` in this repo
-2. Commit and push
-3. It's automatically available everywhere (directory symlink + auto-sync)
+1. Create `skills/your-skill/SKILL.md` using the Agent Skills format.
+2. Optionally add a root `your-skill.md` symlink for older Claude Code installations.
+3. Run `./setup.sh` once on each machine to create the Claude and Codex links.
+4. Commit and push. Subsequent content updates flow through the symlinks.
 
 ## How auto-sync works
 
