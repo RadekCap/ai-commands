@@ -1,6 +1,7 @@
 #!/bin/bash
 # Setup script for ai-commands
-# Configures commands, hooks, statusline, CLAUDE.md, and settings for Claude Code.
+# Configures shared skills for Claude Code and Codex, plus Claude-specific hooks,
+# statusline, global instructions, and settings.
 #
 # Usage:
 #   git clone git@github.com:RadekCap/ai-commands.git ~/git/ai-commands
@@ -8,10 +9,10 @@
 #   ./setup.sh
 #
 # What it does:
-#   1. Symlinks ~/.claude/commands/ → this repo (all commands available instantly)
-#   2. Symlinks ~/.claude/CLAUDE.md → this repo's CLAUDE.md (global instructions)
-#   3. Copies statusline.sh to ~/.claude/
-#   4. Patches ~/.claude/settings.json with hooks, statusline, and sync config
+#   1. Keeps the legacy ~/.claude/commands/ link for existing installations
+#   2. Links every skill into ~/.claude/skills/ and ~/.agents/skills/
+#   3. Symlinks ~/.claude/CLAUDE.md → this repo's CLAUDE.md (global instructions)
+#   4. Symlinks statusline.sh and patches Claude settings and hooks
 #
 # Safe to re-run: skips steps that are already done.
 
@@ -19,6 +20,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CLAUDE_DIR="$HOME/.claude"
+CLAUDE_SKILLS_DIR="$CLAUDE_DIR/skills"
+CODEX_SKILLS_DIR="$HOME/.agents/skills"
 SETTINGS_FILE="$CLAUDE_DIR/settings.json"
 
 echo "=== Claude Commands Setup ==="
@@ -67,6 +70,40 @@ else
     ln -s "$SCRIPT_DIR" "$CLAUDE_DIR/commands"
     echo "[OK] Commands symlinked"
 fi
+
+# Link canonical Agent Skills without replacing unrelated personal skills.
+# Root-level *.md command symlinks remain for older Claude Code installations.
+link_skills() {
+    local target_dir="$1"
+    local product="$2"
+
+    mkdir -p "$target_dir"
+    for skill_dir in "$SCRIPT_DIR/skills/"*; do
+        [ -f "$skill_dir/SKILL.md" ] || continue
+        local name
+        local target
+        name="$(basename "$skill_dir")"
+        target="$target_dir/$name"
+
+        if [ -L "$target" ]; then
+            if [ "$(readlink "$target")" = "$skill_dir" ]; then
+                echo "[OK] $product skill $name already symlinked"
+            else
+                echo "[UPDATE] $product skill $name points elsewhere, updating..."
+                rm "$target"
+                ln -s "$skill_dir" "$target"
+            fi
+        elif [ -e "$target" ]; then
+            echo "[WARN] $product skill $name already exists and was preserved: $target"
+        else
+            ln -s "$skill_dir" "$target"
+            echo "[OK] $product skill $name symlinked"
+        fi
+    done
+}
+
+link_skills "$CLAUDE_SKILLS_DIR" "Claude Code"
+link_skills "$CODEX_SKILLS_DIR" "Codex"
 
 # Step 3: Symlink CLAUDE.md (global instructions)
 if [ -L "$CLAUDE_DIR/CLAUDE.md" ]; then
@@ -245,6 +282,7 @@ echo "=== Setup Complete ==="
 echo ""
 echo "Installed for Claude Code:"
 echo "  - Commands:   $CLAUDE_DIR/commands/ -> $SCRIPT_DIR/"
+echo "  - Skills:     $CLAUDE_SKILLS_DIR/* -> $SCRIPT_DIR/skills/*"
 echo "  - CLAUDE.md:  $CLAUDE_DIR/CLAUDE.md -> $SCRIPT_DIR/CLAUDE.md"
 echo "  - Statusline: $CLAUDE_DIR/statusline.sh -> $SCRIPT_DIR/statusline.sh"
 echo "  - Hooks:"
@@ -253,11 +291,13 @@ echo "    - PreToolUse:   Auto-approve Obsidian vault operations (needs \$OBSIDI
 echo "    - SessionStart: Show context on resume"
 echo "    - SessionStart: Auto-sync shared commands from GitHub"
 echo ""
+echo "Installed for Codex:"
+echo "  - Skills:     $CODEX_SKILLS_DIR/* -> $SCRIPT_DIR/skills/*"
+echo ""
 echo "Installed for Antigravity / Gemini CLI:"
 echo "  - GEMINI.md:  $GEMINI_CONFIG_DIR/GEMINI.md -> $SCRIPT_DIR/GEMINI.md"
 echo ""
 echo "Auto-sync: Every new session will pull latest changes"
 echo "           from the ai-commands repo automatically."
 echo ""
-echo "Restart Claude Code or Antigravity to apply changes."
-
+echo "Restart Claude Code, Codex, or Antigravity if new skills do not appear."
