@@ -5,20 +5,21 @@ description: Clean up a git worktree after a GitHub issue PR has been merged
 
 # Close Worktree
 
-Clean up a git worktree that was created with `/prepare-worktree` after the associated pull request has been merged.
+Clean up a git worktree created with the shared `prepare-worktree` skill after the associated pull request has been merged.
 
 ## Usage
 
 ```
-/close-worktree <issue-number>
+Claude Code: /close-worktree <issue-number>
+Codex:      $close-worktree <issue-number>
 ```
 
-**Example**: `/close-worktree 263`
+**Example**: `/close-worktree 263` in Claude Code or `$close-worktree 263` in Codex
 
 ## Workflow
 
 1. **Validate issue number argument**
-   - If no issue number provided, prompt user: "Please provide an issue number: /close-worktree <number>"
+   - If no issue number is provided, ask the user for one using the current tool's supported interaction method
    - If issue number is not a valid integer, show error and exit
 
 2. **Find the worktree for this issue**
@@ -158,22 +159,24 @@ The command performs these checks in order to prevent losing work:
 
 ## Related Commands
 
-- `/prepare-worktree` - Create a worktree for an issue
-- `/implement-issue` - Implement the fix in the worktree
+- `prepare-worktree` — create a worktree (Claude: `/prepare-worktree`; Codex: `$prepare-worktree`; Gemini: load the shared skill by name)
+- `implement-issue` — implement the fix in the worktree (Claude: `/implement-issue`; Codex: `$implement-issue`; Gemini: load the shared skill by name)
 
 ## Complete Workflow
 
 ```bash
-# Instance 1: Prepare worktree
-/prepare-worktree 263
+# Instance 1: Prepare worktree using the current provider's invocation syntax
+<prepare-worktree invocation> 263
 # Copies command to clipboard
 
-# Instance 2: New terminal, paste command
-cd /path/to/repo-issue-263-... && claude
-/implement-issue 263
+# Instance 2: Start the current provider's CLI in the worktree
+cd /path/to/repo-issue-263-... && <provider-cli>
+<implement-issue invocation> 263
 # Creates PR, gets merged
 
-# Instance 1: Clean up after PR is merged
-/close-worktree 263
+# Instance 1: Clean up after PR is merged using the current provider's syntax
+<close-worktree invocation> 263
 # Verifies PR merged, then removes worktree and branch
 ```
+
+Use `claude` and `/skill-name` in Claude Code, `codex` and `$skill-name` in Codex, or the equivalent shared-skill invocation in Gemini. If no provider CLI is known, enter the worktree with `cd` and display the next instruction without inventing a command.

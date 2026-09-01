@@ -5,21 +5,26 @@ description: Run CAPZ status check and save results to today's Obsidian daily no
 
 # Morning CAPZ Status Check
 
-Wrapper around `/capz-status-check` that writes results directly into today's Obsidian daily note.
+Wrapper around the shared `capz-status-check` skill that writes results directly into today's Obsidian daily note.
 
 ## Usage
 
 ```
-/morning-capz-status-check
+Claude Code: /morning-capz-status-check
+Codex:      $morning-capz-status-check
 ```
 
 No arguments, no prompts — just run it and it saves.
 
 ## Steps
 
-### 1. Run /capz-status-check
+### 1. Run the shared capz-status-check skill
 
-Run the full `/capz-status-check` inline — execute all steps from that skill (GHA workflows, issues, PRs, security alerts). Display results in the terminal as usual.
+Load and run the full shared `capz-status-check` skill inline, executing all of its steps (GHA workflows, issues, PRs, and security alerts). Display results in the terminal as usual.
+
+- **Claude Code:** invoke `/capz-status-check`
+- **Codex:** invoke `$capz-status-check`
+- **Gemini or another tool:** load the shared `capz-status-check` skill by name and execute its instructions
 
 ### 2. Write to Obsidian daily note
 

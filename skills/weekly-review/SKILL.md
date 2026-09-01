@@ -10,19 +10,22 @@ Guided weekly review session. Run at the start of your Monday or Friday review b
 ## Usage
 
 ```
-/weekly-review open    — Monday opening review (8:00–12:00)
-/weekly-review close   — Friday closing review (14:00–18:00)
+Claude Code: /weekly-review open|close
+Codex:      $weekly-review open|close
 ```
 
-If no argument is provided, ask: "Is this your Monday opening review or Friday closing review?"
+In Gemini or another tool, load the shared `weekly-review` skill by name. If no argument is provided, ask using the current tool's supported interaction method: "Is this your Monday opening review or Friday closing review?"
 
 ## Jira Credentials
 
-Read from `~/.claude/credentials.json`:
-```bash
-EMAIL=$(python3 -c "import json; d=json.load(open('$HOME/.claude/credentials.json')); print(d['jira']['email'])")
-TOKEN=$(python3 -c "import json; d=json.load(open('$HOME/.claude/credentials.json')); print(d['jira']['token'])")
-```
+Resolve Jira credentials in this order:
+
+1. `JIRA_EMAIL` and `JIRA_API_TOKEN` environment variables
+2. `credentials.json` in the ai-commands repository root (`jira.email`, `jira.token`)
+3. A legacy project `.jira-credentials` file containing `JIRA_EMAIL` and `JIRA_API_TOKEN`
+4. Legacy `~/.claude/credentials.json` (`jira.email`, `jira.token`)
+
+Locate repositories from the current checkout, Git remotes, or configured environment rather than assuming a user-specific absolute path. Parse credential files as data; do not `source` them as shell code. Never print credential values. If credentials are unavailable, report that Jira steps will be skipped and continue with the remaining review.
 
 ## Vault Path
 
@@ -35,6 +38,12 @@ The plan file lives at `$OBSIDIAN_VAULT/Diary/Weekly/YYYY-WNN-plan.md` where WNN
 WEEK=$(date +%Y-W%V)
 PLAN_FILE="$OBSIDIAN_VAULT/Diary/Weekly/${WEEK}-plan.md"
 ```
+
+Treat shell snippets as illustrative. Resolve and retain the week, plan path, and credentials in the workflow context; do not assume shell variables persist across separate tool calls.
+
+## Optional Nirvana Integration
+
+Before using `next_inbox_item`, `list_tasks`, or other Nirvana operations, check whether those tools are available in the current runtime. If unavailable, state that the Nirvana integration is unavailable, skip only the Nirvana-specific steps, and continue with the Obsidian, Jira, planning, and reflection steps. Never claim that Nirvana items were read or updated when the integration was unavailable.
 
 ---
 
@@ -187,9 +196,11 @@ Your priorities this week:
   1. ARO-XXXXX — <description>
   2. ARO-YYYYY — <description>
 
-Tomorrow, run /daily-check to see your Tuesday actions.
+Tomorrow, run the shared daily-check skill to see your Tuesday actions.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
+
+Use `/daily-check` in Claude Code, `$daily-check` in Codex, or load the shared `daily-check` skill by name in Gemini or another tool.
 
 ---
 
@@ -248,7 +259,10 @@ Print a banner:
    - Priorities completed / not completed (with reasons)
    - Disruptions noted during the week
 
-4. Run `/weekly-report` to generate the manager report for Tuesday.
+4. Run the shared `weekly-report` skill to generate the manager report for Tuesday.
+   - **Claude Code:** invoke `/weekly-report`
+   - **Codex:** invoke `$weekly-report`
+   - **Gemini or another tool:** load the shared `weekly-report` skill by name
    - This generates the Slack-formatted status. The user can review and adjust before Tuesday.
 
 ### Step 3: Jira Sync (30 minutes)
@@ -325,7 +339,7 @@ Print:
 ```
 ━━━ ✔ Weekly Review — Closing complete ━━━━━━━━━
 Weekly report is ready for your Tuesday meeting.
-Next Monday, run /weekly-review open to plan the next week.
+Next Monday, run the opening mode of this shared skill (`/weekly-review open` in Claude Code or `$weekly-review open` in Codex).
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 

@@ -10,15 +10,16 @@ Create a git worktree for a GitHub issue, allowing you to implement the fix in a
 ## Usage
 
 ```
-/prepare-worktree <issue-number>
+Claude Code: /prepare-worktree <issue-number>
+Codex:      $prepare-worktree <issue-number>
 ```
 
-**Example**: `/prepare-worktree 263`
+**Example**: `/prepare-worktree 263` in Claude Code or `$prepare-worktree 263` in Codex
 
 ## Workflow
 
 1. **Validate issue number argument**
-   - If no issue number provided, prompt user: "Please provide an issue number: /prepare-worktree <number>"
+   - If no issue number is provided, ask the user for one using the current tool's supported interaction method
    - If issue number is not a valid integer, show error and exit
 
 2. **Fetch issue details from GitHub**
@@ -75,12 +76,14 @@ Create a git worktree for a GitHub issue, allowing you to implement the fix in a
    git -C <worktree-path> submodule update --init
    ```
    - Worktrees don't automatically initialize submodules
-   - This ensures `.claude/commands` and other submodules are available
+   - This initializes all repository submodules required by the worktree; shared global skills do not depend on a repository-local Claude commands path
 
-9. **Copy command to clipboard**
-   - Linux (X11): `echo "cd <full-worktree-path> && claude" | xclip -selection clipboard`
-   - Linux (Wayland): `echo "cd <full-worktree-path> && claude" | wl-copy`
-   - macOS: `echo "cd <full-worktree-path> && claude" | pbcopy`
+9. **Prepare and optionally copy the session command**
+   - Select the CLI from the current runtime: `claude` for Claude Code, `codex` for Codex, or `gemini` for Gemini
+   - If the runtime or matching CLI cannot be determined, use only `cd <full-worktree-path>`
+   - Build the command as `cd <full-worktree-path> && <provider-cli>` when a CLI is known
+   - Copy it with an available clipboard utility: `xclip -selection clipboard` on X11, `wl-copy` on Wayland, or `pbcopy` on macOS
+   - If no clipboard utility is available, display the command and continue without treating this as an error
 
 10. **Display next steps**
    Print clear instructions:
@@ -97,13 +100,15 @@ Create a git worktree for a GitHub issue, allowing you to implement the fix in a
    Next steps (copied to clipboard):
    ------------------------------------------------
 
-   cd <full-worktree-path> && claude
+   <provider-specific session command>
 
    ------------------------------------------------
    Then run:
    ------------------------------------------------
 
-   /implement-issue <issue-number>
+   Claude Code: /implement-issue <issue-number>
+   Codex:      $implement-issue <issue-number>
+   Gemini:     load the shared implement-issue skill by name
 
    ================================================
    ```
@@ -122,12 +127,12 @@ Worktree for issue #<number> already exists at:
   <worktree-path>
 
 To use it, run:
-  cd <full-worktree-path> && claude
-  /implement-issue <number>
+  <provider-specific session command>
+  <provider-specific implement-issue invocation>
 
 To remove and recreate:
   git worktree remove <worktree-path>
-  /prepare-worktree <number>
+  <provider-specific prepare-worktree invocation>
 ```
 
 ### Branch Already Exists (No Worktree)
@@ -159,17 +164,17 @@ git branch -d issue-<number>-<slug>
 git worktree prune
 ```
 
-**Tip**: Use `/close-worktree` command to interactively clean up worktrees.
+**Tip**: Use the shared `close-worktree` skill to clean up worktrees (`/close-worktree` in Claude Code or `$close-worktree` in Codex).
 
-## Integration with /implement-issue
+## Integration with implement-issue
 
-This command is designed to work seamlessly with `/implement-issue`:
+This skill is designed to work seamlessly with the shared `implement-issue` skill:
 
-1. `/prepare-worktree <number>` - Creates isolated environment
+1. Invoke `prepare-worktree` using the current provider's syntax to create the isolated environment
 2. Open new terminal, paste command from clipboard
-3. `/implement-issue <number>` - Implements the fix
+3. Invoke `implement-issue` using the current provider's syntax to implement the fix
 
-The `/implement-issue` command will detect it's in a worktree and skip the branch creation step since the branch already exists.
+The `implement-issue` skill will detect that it is in a worktree and skip branch creation because the branch already exists.
 
 ## Tips
 

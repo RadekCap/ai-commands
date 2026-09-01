@@ -10,13 +10,17 @@ Generate a daily work summary by gathering activity from GitHub (PRs, issues, re
 ## Usage
 
 ```
-/daily-summary
+Claude Code: /daily-summary
+Codex:      $daily-summary
 ```
 
 A date can be passed as argument to skip the interactive prompt:
 ```
-/daily-summary 2026-04-03
+Claude Code: /daily-summary 2026-04-03
+Codex:      $daily-summary 2026-04-03
 ```
+
+In Gemini or another tool, load the shared `daily-summary` skill by name. Use the current tool's supported interaction method for all questions in this workflow.
 
 ## Step 0: Date Selection
 
@@ -37,9 +41,10 @@ Choose [1/2/3]:
 
 If a date argument was passed (e.g., `/daily-summary 2026-04-03`), skip this prompt and use it directly.
 
-Calculate the day-of-week for the header:
+Calculate the day of week using a platform-appropriate command or the current runtime's date capability. Examples:
 ```bash
-date -j -f '%Y-%m-%d' '$DATE' '+%A'   # macOS
+date -d "$DATE" '+%A'                 # GNU/Linux
+date -j -f '%Y-%m-%d' "$DATE" '+%A'  # macOS
 ```
 
 ## Tracked Projects
@@ -114,25 +119,21 @@ For each tracked repo, gather the following. Run all repos in parallel for speed
 
 ### Jira
 
-Read credentials from `credentials.json` in the ai-commands repo root (`/Users/radoslavcap/git/ai-commands/credentials.json`):
-```bash
-EMAIL=$(python3 -c "import json; d=json.load(open('/Users/radoslavcap/git/ai-commands/credentials.json')); print(d['jira']['email'])")
-TOKEN=$(python3 -c "import json; d=json.load(open('/Users/radoslavcap/git/ai-commands/credentials.json')); print(d['jira']['token'])")
-```
+Resolve Jira credentials in this order:
 
-**Fallback**: If not found, try the capi-tests repo:
-```bash
-# /Users/radoslavcap/git/capi-tests/.jira-credentials format: JIRA_EMAIL=... JIRA_API_TOKEN=...
-source /Users/radoslavcap/git/capi-tests/.jira-credentials
-EMAIL=$JIRA_EMAIL
-TOKEN=$JIRA_API_TOKEN
-```
+1. `JIRA_EMAIL` and `JIRA_API_TOKEN` environment variables
+2. `credentials.json` in the ai-commands repository root (`jira.email`, `jira.token`)
+3. A legacy project `.jira-credentials` file containing `JIRA_EMAIL` and `JIRA_API_TOKEN`
+4. Legacy `~/.claude/credentials.json` (`jira.email`, `jira.token`)
+
+Locate repositories from the current checkout, Git remotes, or configured environment rather than assuming a user-specific absolute path. Parse credential files as data; do not `source` them as shell code. Never print credential values.
 
 **IMPORTANT**: Use the v3 search API — v2 search has been removed by Atlassian.
 
-**DATE RANGE PITFALL**: Jira dates are midnight-based. `updated <= "2026-04-01"` means "before April 1st started" — it excludes the entire day. Always use `updated >= "$DATE" AND updated < "$NEXT_DAY"` where `$NEXT_DAY` is the day after `$DATE`. Calculate it with:
+**DATE RANGE PITFALL**: Jira dates are midnight-based. `updated <= "2026-04-01"` means "before April 1st started" — it excludes the entire day. Always use `updated >= "$DATE" AND updated < "$NEXT_DAY"` where `$NEXT_DAY` is the day after `$DATE`. Calculate it with a platform-appropriate command or date library. Examples:
 ```bash
-NEXT_DAY=$(date -j -v+1d -f '%Y-%m-%d' "$DATE" '+%Y-%m-%d')   # macOS
+NEXT_DAY=$(date -d "$DATE + 1 day" '+%Y-%m-%d')                # GNU/Linux
+NEXT_DAY=$(date -j -v+1d -f '%Y-%m-%d' "$DATE" '+%Y-%m-%d')  # macOS
 ```
 
 1. **Issues updated on that day** (assigned to user, any status change):
@@ -228,7 +229,7 @@ Note: Jira tickets that match multiple areas (e.g., ARO-25504 mentions both "cap
 
 ## Phase 2: Obsidian Daily Note
 
-After displaying the terminal output, ask the user:
+After displaying the terminal output, ask the user using the current tool's supported interaction method:
 ```
 Save to Obsidian daily note? (y/n)
 ```
@@ -324,7 +325,7 @@ Note: Unlike other Obsidian commands, the daily summary uses a direct push to ma
    - Run all repo queries concurrently (use parallel Bash tool calls)
 
 3. **Gather Jira data**
-   - Read credentials (try ai-commands/credentials.json first, then capi-tests/.jira-credentials)
+   - Resolve credentials using the provider-neutral order in the Jira section
    - Fetch updated, resolved, and transitioned issues via v3 search API
    - Run all three Jira queries in parallel
 
@@ -346,11 +347,11 @@ Note: Unlike other Obsidian commands, the daily summary uses a direct push to ma
      - Write the file
      - Ask before committing and pushing
 
-6. **Offer /quick-pr** (Phase 3 — always at the end)
-   - After Phase 2 completes (whether the user saved to Obsidian or not), offer to run `/quick-pr` for any repos that have uncommitted changes from this session
+6. **Offer the shared quick-pr skill** (Phase 3 — always at the end)
+   - After Phase 2 completes (whether the user saved to Obsidian or not), offer to run the shared `quick-pr` skill for any repos that have uncommitted changes from this session
    - Typical repos with changes: `ai-commands` (if the command definition was updated), `obsidian-rh-acm` (if daily note was saved)
-   - Ask: "Run /quick-pr for changed repos? (y/n)"
-   - If yes, run the quick-pr workflow for each repo with changes
+   - Ask: "Run quick-pr for changed repos? (y/n)"
+   - If yes, invoke `/quick-pr` in Claude Code, `$quick-pr` in Codex, or load the shared `quick-pr` skill by name in Gemini or another tool, once for each repo with changes
 
 ## Error Handling
 

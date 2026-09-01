@@ -87,17 +87,19 @@ Renames this chat session to `#<number> · <PR title>` (truncated to 200 charact
 
 ### Step 2: Self-Review
 
-Before external AI reviews, run Claude Code's own code review to catch issues early.
+Before external AI reviews, run an internal code review using the capability available in the current AI tool to catch issues early.
 
 1. **Get the PR diff**:
    ```bash
    gh pr diff "$PR_NUMBER"
    ```
 
-2. **Run self-review** using the `pr-review-toolkit:code-reviewer` agent:
-   - Use the Agent tool to launch the `pr-review-toolkit:code-reviewer` agent
-   - Provide the diff context for review
-   - The agent checks for: code quality, security, pattern compliance (CLAUDE.md), test coverage
+2. **Run self-review using the capability available in the current AI tool**:
+   - **Claude Code:** if available, use the Agent tool to launch the `pr-review-toolkit:code-reviewer` agent with the PR diff
+   - **Codex:** perform a native review of the PR diff, prioritizing correctness defects, regressions, missing tests, and violations of repository instructions
+   - **Gemini or another tool:** perform the same structured review directly over the PR diff using its native code-review capability
+   - Read all applicable repository instruction files, such as `AGENTS.md`, `CLAUDE.md`, or `GEMINI.md`, without assuming that any one of them exists
+   - Report only actionable findings introduced by the changes. For each finding, include severity, affected file and line, evidence, impact, and a concrete remediation
 
 3. **Implement self-review fixes**:
    - For each issue found:
@@ -129,10 +131,13 @@ Before external AI reviews, run Claude Code's own code review to catch issues ea
 
 After self-review fixes are committed and pushed, run a security-focused review to catch vulnerabilities before external AI reviewers see the code.
 
-1. **Invoke the `/security-review` skill**:
-   - Use the Skill tool to invoke `security-review`
-   - This performs a comprehensive security review of the pending changes on the current branch
-   - It checks for: command injection, credential exposure, path traversal, insecure defaults, OWASP top 10 issues, and other security vulnerabilities
+1. **Run the security review using the capability available in the current AI tool**:
+   - Review the PR diff against its base branch, including any relevant uncommitted changes
+   - **Claude Code:** invoke the built-in `/security-review` command
+   - **Codex:** if the Codex Security plugin is available, invoke `$codex-security:security-diff-scan` for the PR, branch diff, or working-tree patch
+   - **Other tools, or when the provider-specific capability is unavailable:** perform a read-only security-focused review directly over the same diff; state that the specialized capability was unavailable rather than silently skipping the review
+   - Check at minimum for command/code injection, authentication and authorization flaws, credential or sensitive-data exposure, path traversal and unsafe file access, insecure defaults, dependency risks, privileged workflow changes, and other applicable OWASP Top 10 vulnerabilities
+   - Report each plausible finding with severity, affected file and line, evidence or attack path, impact, and a concrete remediation; omit speculative findings that cannot be tied to the changed code
 
 2. **Implement security fixes**:
    - For each security issue found:
