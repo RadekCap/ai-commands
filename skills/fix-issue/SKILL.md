@@ -20,6 +20,8 @@ End-to-end workflow: create an isolated worktree, implement a GitHub issue or JI
 - `/fix-issue https://issues.redhat.com/browse/ACM-12345` (JIRA URL, legacy)
 - `/fix-issue https://github.com/org/repo/issues/72` (GitHub URL)
 
+In Codex, invoke this skill as `$fix-issue <input>`. At the start, determine the current AI tool and model from the active runtime and use them consistently for generated attribution without guessing unavailable model details.
+
 ## Workflow
 
 ### Phase 1: Parse Input
@@ -46,15 +48,15 @@ End-to-end workflow: create an isolated worktree, implement a GitHub issue or JI
 
 2b. **[JIRA] Fetch ticket details**
     - Only when input resolved to a JIRA key
-    - Read credentials from `~/.claude/credentials.json` (fields: `jira.email`, `jira.token`)
+    - Resolve credentials in this order: `JIRA_EMAIL` and `JIRA_API_TOKEN` environment variables, repo-local `credentials.json` (`jira.email`, `jira.token`), then legacy `~/.claude/credentials.json`
+    - Never print credential values
     - Fetch ticket details using Basic auth (`-u email:token`):
       ```bash
-      EMAIL=$(cat ~/.claude/credentials.json | jq -r '.jira.email')
-      TOKEN=$(cat ~/.claude/credentials.json | jq -r '.jira.token')
+      # Set EMAIL and TOKEN from the first available credential source above.
       curl -s -u "$EMAIL:$TOKEN" -H "Content-Type: application/json" \
         "https://redhat.atlassian.net/rest/api/3/issue/$KEY?fields=summary,description,status,issuetype,priority,labels,components"
       ```
-    - If credentials.json is missing or token is empty, show error and exit
+    - If no credential source is available or the token is empty, show an error and exit
     - If fetch fails, show error and exit
     - Extract ticket summary for branch naming
 
@@ -103,12 +105,13 @@ End-to-end workflow: create an isolated worktree, implement a GitHub issue or JI
    git -C <worktree-path> submodule update --init
    ```
 
-### Phase 4: Switch Into Worktree
+### Phase 4: Operate in the Worktree
 
-9. **Enter the worktree using EnterWorktree tool**
-   - Use the `EnterWorktree` tool with the `path` parameter set to the worktree path
-   - This switches the current AI coding session into the worktree directory
-   - All subsequent file operations will happen in the worktree
+9. **Route all subsequent operations to the worktree**
+   - **Claude Code:** when available, use `EnterWorktree` with the worktree path
+   - **Codex:** set the worktree path as the working directory for every subsequent file and shell operation
+   - **Gemini or another tool:** use its native workspace or working-directory capability
+   - Verify the active repository root and branch before editing; do not modify the original checkout during implementation
 
 10. **Display progress banner**
     ```
@@ -132,21 +135,21 @@ End-to-end workflow: create an isolated worktree, implement a GitHub issue or JI
     - Determine affected files by:
       - Reading issue description for file/path mentions
       - Searching codebase for relevant code patterns
-      - Using Grep/Glob tools to find related files
-    - Check CLAUDE.md for repository-specific patterns and guidelines
+      - Searching repository paths and file contents for related code
+    - Read all applicable repository instruction files, such as `AGENTS.md`, `CLAUDE.md`, or `GEMINI.md`, without assuming that any one exists
 
-12. **Create implementation plan using TaskCreate**
+12. **Create an implementation plan using the current AI tool's planning capability**
     - Break down the implementation into specific tasks
-    - Mark first task as in_progress
+    - Mark the first task as in progress when the current tool supports task states
 
 13. **Implement changes**
-    - Follow repository patterns from CLAUDE.md
+    - Follow applicable repository instructions and existing code patterns
     - Read existing code before making changes
     - Implement step-by-step, updating tasks as you progress
     - Follow existing code style and patterns
 
 14. **Run relevant tests**
-    - Check CLAUDE.md for test commands
+    - Check applicable repository instructions for test commands
     - Check Makefile targets, package.json scripts, or equivalent
     - Run project-specific test/lint/build commands
     - If tests fail: analyze, fix, re-run until passing
@@ -165,7 +168,7 @@ End-to-end workflow: create an isolated worktree, implement a GitHub issue or JI
 
       Fixes #<issue-number>
 
-      Generated with [Claude Code](https://claude.com/claude-code)
+      Generated with <current AI tool>
 
       Assisted-by: <current AI tool and model>
       ```
@@ -177,7 +180,7 @@ End-to-end workflow: create an isolated worktree, implement a GitHub issue or JI
 
       Ref: <JIRA-KEY>
 
-      Generated with [Claude Code](https://claude.com/claude-code)
+      Generated with <current AI tool>
 
       Assisted-by: <current AI tool and model>
       ```
@@ -218,7 +221,7 @@ End-to-end workflow: create an isolated worktree, implement a GitHub issue or JI
 
       Fixes #<issue-number>
 
-      Generated with [Claude Code](https://claude.com/claude-code)
+      Generated with <current AI tool>
       EOF
       )"
       ```
@@ -246,7 +249,7 @@ End-to-end workflow: create an isolated worktree, implement a GitHub issue or JI
 
       Ref: <JIRA-KEY>
 
-      Generated with [Claude Code](https://claude.com/claude-code)
+      Generated with <current AI tool>
       EOF
       )"
       ```
@@ -261,11 +264,10 @@ End-to-end workflow: create an isolated worktree, implement a GitHub issue or JI
       ```
 
     - **JIRA**: Post a comment AND add the PR as a web link
-      - Read credentials from `~/.claude/credentials.json` (same as Phase 2)
+      - Resolve credentials using the same provider-neutral order as Phase 2
       - Post comment:
         ```bash
-        EMAIL=$(cat ~/.claude/credentials.json | jq -r '.jira.email')
-        TOKEN=$(cat ~/.claude/credentials.json | jq -r '.jira.token')
+        # Set EMAIL and TOKEN from the first available credential source from Phase 2.
         curl -s -u "$EMAIL:$TOKEN" -H "Content-Type: application/json" \
           -X POST "https://redhat.atlassian.net/rest/api/3/issue/<JIRA-KEY>/comment" \
           -d '{
@@ -307,12 +309,13 @@ End-to-end workflow: create an isolated worktree, implement a GitHub issue or JI
         ```
       - If either call fails, warn but continue (don't block the workflow)
 
-### Phase 7: Switch Back
+### Phase 7: Return to the Original Repository Context
 
-20. **Exit the worktree using ExitWorktree tool**
-    - Use `ExitWorktree` with `action: "keep"`
-    - The worktree stays on disk for future reference or follow-up work
-    - Session returns to the original directory
+20. **Return operations to the original repository context**
+    - **Claude Code:** when `EnterWorktree` was used, call `ExitWorktree` with `action: "keep"`
+    - **Codex:** restore the original repository as the working directory for subsequent operations
+    - **Gemini or another tool:** use its native workspace or working-directory capability
+    - Keep the worktree on disk for future reference or follow-up work
 
 21. **Display completion summary**
     ```
@@ -329,7 +332,8 @@ End-to-end workflow: create an isolated worktree, implement a GitHub issue or JI
     After PR is merged, clean up with:
     ------------------------------------------------
 
-    /close-worktree <issue-number>
+    Claude Code: /close-worktree <issue-number>
+    Codex:      $close-worktree <issue-number>
 
     ================================================
     ```
@@ -354,7 +358,7 @@ Expected formats:
 ### JIRA Credentials Missing
 ```
 Error: Missing JIRA credentials
-Ensure ~/.claude/credentials.json exists with: {"jira": {"email": "...", "token": "..."}}
+Set `JIRA_EMAIL` and `JIRA_API_TOKEN`, add repo-local `credentials.json`, or provide the legacy `~/.claude/credentials.json`, with Jira email and token fields.
 ```
 
 ### Worktree Creation Fails
@@ -375,19 +379,19 @@ Ensure ~/.claude/credentials.json exists with: {"jira": {"email": "...", "token"
 - User can fix manually and push
 
 ### Any Unrecoverable Error
-- Always exit the worktree before stopping (use `ExitWorktree` with `action: "keep"`)
+- Always return to the original repository context before stopping, using the provider-specific mechanism from Phase 7
 - Display what was completed and what remains
 - The worktree is preserved so no work is lost
 
 ## Related Commands
 
-- `/prepare-worktree` — create worktree only (for parallel work or manual flow)
-- `/implement-issue` — implement only (when already in the right directory)
-- `/close-worktree` — clean up worktree after PR is merged
+- `prepare-worktree` — create worktree only (Claude: `/prepare-worktree`; Codex: `$prepare-worktree`)
+- `implement-issue` — implement only when already in the right directory (Claude: `/implement-issue`; Codex: `$implement-issue`)
+- `close-worktree` — clean up after merge (Claude: `/close-worktree`; Codex: `$close-worktree`)
 
 ## Tips
 
-1. **One command**: `/fix-issue` replaces the manual `/prepare-worktree` + new terminal + `/implement-issue` flow
+1. **One skill**: `fix-issue` replaces the manual `prepare-worktree` plus `implement-issue` flow
 2. **Worktree preserved**: After PR creation, the worktree stays on disk for follow-up
-3. **Clean up after merge**: Use `/close-worktree` once the PR is merged
-4. **Existing skills still work**: Use `/prepare-worktree` or `/implement-issue` independently when needed
+3. **Clean up after merge**: Use the shared `close-worktree` skill once the PR is merged
+4. **Existing skills still work**: Use `prepare-worktree` or `implement-issue` independently when needed

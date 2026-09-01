@@ -1,17 +1,20 @@
 ---
 name: my-context
-description: Show current session context including directory, branch, and todos
+description: Show current AI coding session context including directory, branch, worktree state, and available tasks
 ---
 
 # Context
 
-Display the current session context to help you quickly orient yourself when switching between Claude instances.
+Display the current session context to help you quickly orient yourself when switching between AI coding sessions.
 
 ## Usage
 
 ```
-/context
+Claude Code: /my-context
+Codex:      $my-context
 ```
+
+In Gemini or another tool, load the shared `my-context` skill by name.
 
 ## What It Shows
 
@@ -24,9 +27,10 @@ Display the current session context to help you quickly orient yourself when swi
    - Commits ahead/behind remote
    - Uncommitted changes summary
 
-3. **Active Todos**
-   - List all current todos with their status
+3. **Active Tasks**
+   - List tasks from the current AI tool's planning or task-tracking capability when available
    - Highlight in-progress items
+   - If the runtime does not expose session tasks, state that task data is unavailable and continue with the remaining context
 
 4. **Recent Activity** (optional)
    - Last few git commits on current branch
@@ -53,8 +57,8 @@ Display the current session context to help you quickly orient yourself when swi
    git rev-list --count @{u}..HEAD 2>/dev/null  # ahead
    ```
 
-4. **Display todos**
-   - Use the internal todo list to show current tasks
+4. **Display available tasks**
+   - Use the current AI tool's planning or task-tracking capability when it exposes session tasks
    - Format:
      ```
      Todos:
@@ -110,6 +114,6 @@ def5678 Initial implementation
 
 ## Tips
 
-- Run `/context` whenever you switch to a Claude tab
+- Run this skill whenever you switch to another AI coding session
 - Use with GNOME Terminal tab titles for quick identification
-- Combine with `/todos` for detailed task tracking
+- Use the current tool's native planning or task view for more detailed tracking when available

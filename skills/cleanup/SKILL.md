@@ -7,6 +7,15 @@ description: Cleanup local git repository by syncing fork, updating main, and re
 
 Clean up your local Git repository by checking out main, syncing from upstream (for forked repos), updating it to the latest version, and removing all other local branches.
 
+## Usage
+
+```text
+Claude Code: /cleanup
+Codex:      $cleanup
+```
+
+In Gemini or another tool, load the shared `cleanup` skill by name.
+
 ## Workflow
 
 1. **Check current git status**
@@ -14,7 +23,7 @@ Clean up your local Git repository by checking out main, syncing from upstream (
    git status
    ```
    - Check for uncommitted changes on current branch
-   - If there are uncommitted changes, ask the user:
+   - If there are uncommitted changes, ask the user using the current tool's supported interaction method:
      - "You have uncommitted changes. What would you like to do?"
        - Option 1: Commit changes first, then continue
        - Option 2: Stash changes and continue
@@ -54,7 +63,8 @@ Clean up your local Git repository by checking out main, syncing from upstream (
             - `git reset --hard upstream/main` (WARNING: discards local commits on main)
             - Manual merge resolution
             - Cancel operation
-          - Ask user how to proceed before continuing
+          - Ask the user using the current tool's supported interaction method before continuing
+          - Obtain explicit confirmation immediately before any `git reset --hard`; suggesting it does not authorize running it
      5. Push the updated main to origin (to keep the fork in sync):
         ```bash
         git push origin main
@@ -76,6 +86,7 @@ Clean up your local Git repository by checking out main, syncing from upstream (
    - If pull fails (diverged history), explain error and suggest:
      - `git reset --hard origin/main` (WARNING: discards local commits)
      - Manual merge resolution
+   - Obtain explicit confirmation immediately before any `git reset --hard`; suggesting it does not authorize running it
    - Show summary of changes pulled (if any)
    - If already up to date, inform user
 
@@ -89,6 +100,7 @@ Clean up your local Git repository by checking out main, syncing from upstream (
 
 6. **Show branches to be deleted**
    - Display the list of branches that will be deleted
+   - Store this exact resolved list for the confirmation and deletion steps; do not recompute it after confirmation
    - Count total branches
    - Example output:
      ```
@@ -100,16 +112,15 @@ Clean up your local Git repository by checking out main, syncing from upstream (
      ```
 
 7. **Ask for confirmation**
-   - Use AskUserQuestion tool:
+   - Ask using the current tool's supported interaction method:
      - "Are you sure you want to delete these X branches?"
        - Option 1: Yes, delete all branches
        - Option 2: No, cancel cleanup (keep branches)
    - If user cancels, exit gracefully with message
 
 8. **Delete all branches**
-   ```bash
-   git branch | grep -v "^\* main$" | grep -v "^  main$" | sed 's/^[ *]*//' | xargs git branch -D
-   ```
+   - After confirmation, delete only the exact branch names displayed in step 6, one branch at a time with `git branch -D -- <branch-name>`
+   - Never pass a newly recomputed list, unresolved variable, or glob to the destructive command
    - Use `-D` flag to force delete even if branches are not merged
    - Show progress for each branch deleted
    - Catch any errors (e.g., if branch is currently checked out)
@@ -187,8 +198,8 @@ WARNING: This will permanently delete all local branches except main.
 
 **Example 1: Clean repository with no uncommitted changes**
 ```
-User: /cleanup
-Claude: Checking for uncommitted changes... None found.
+User: <provider-specific cleanup invocation>
+AI: Checking for uncommitted changes... None found.
         Checking out main branch...
         Pulling latest changes from origin/main...
         Already up to date.
@@ -217,8 +228,8 @@ Claude: Checking for uncommitted changes... None found.
 
 **Example 2: Cleanup with uncommitted changes**
 ```
-User: /cleanup
-Claude: You have uncommitted changes on branch 'feature-xyz'.
+User: <provider-specific cleanup invocation>
+AI: You have uncommitted changes on branch 'feature-xyz'.
         What would you like to do?
         [User selects: Stash changes and continue]
 
@@ -252,8 +263,8 @@ Claude: You have uncommitted changes on branch 'feature-xyz'.
 
 **Example 3: No branches to delete**
 ```
-User: /cleanup
-Claude: Checking for uncommitted changes... None found.
+User: <provider-specific cleanup invocation>
+AI: Checking for uncommitted changes... None found.
         Checking out main branch...
         Already on main branch.
         Pulling latest changes...
@@ -268,8 +279,8 @@ Claude: Checking for uncommitted changes... None found.
 
 **Example 4: User cancels cleanup**
 ```
-User: /cleanup
-Claude: Checking for uncommitted changes... None found.
+User: <provider-specific cleanup invocation>
+AI: Checking for uncommitted changes... None found.
         Checking out main branch...
         Pulling latest changes...
         Updated main with 5 new commits.
@@ -288,8 +299,8 @@ Claude: Checking for uncommitted changes... None found.
 
 **Example 5: Fork repository with upstream sync**
 ```
-User: /cleanup
-Claude: Checking for uncommitted changes... None found.
+User: <provider-specific cleanup invocation>
+AI: Checking for uncommitted changes... None found.
         Checking out main branch...
 
         Upstream remote detected. Syncing from upstream...
@@ -330,10 +341,10 @@ After cleanup completes, remind the user:
 - Repository is clean and ready for new work
 - If stashed changes exist: How to view (`git stash list`) and restore (`git stash pop`)
 - To create a new branch: `git checkout -b <branch-name>`
-- To start fresh: Use `/sync-main` command to create a new feature branch
+- To start fresh: Use the shared `sync-main` skill (`/sync-main` in Claude Code or `$sync-main` in Codex)
 
 ## Related Commands
 
-- `/sync-main` - Sync main and optionally create a new feature branch
-- Consider running `/cleanup` periodically to maintain a clean local repository
+- `sync-main` — sync main and optionally create a new feature branch (Claude: `/sync-main`; Codex: `$sync-main`; Gemini: load the shared skill by name)
+- Consider running the shared `cleanup` skill periodically to maintain a clean local repository
 - Especially useful after PR merges when feature branches are no longer needed

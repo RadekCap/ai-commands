@@ -7,6 +7,15 @@ description: Sync local main branch with remote and optionally create a new feat
 
 Synchronize your local main branch with the remote repository and optionally create a new feature branch for development.
 
+## Usage
+
+```text
+Claude Code: /sync-main
+Codex:      $sync-main
+```
+
+In Gemini or another tool, load the shared `sync-main` skill by name.
+
 ## Workflow
 
 1. **Fetch latest changes from remote**
@@ -22,7 +31,7 @@ Synchronize your local main branch with the remote repository and optionally cre
 
 3. **Check for uncommitted changes**
    - Check `git status` output for any uncommitted changes (staged or unstaged)
-   - If there are uncommitted changes, ask the user:
+   - If there are uncommitted changes, ask the user using the current tool's supported interaction method:
      - "You have uncommitted changes. What would you like to do?"
        - Option 1: Stash changes and continue
        - Option 2: Commit changes first
@@ -63,13 +72,13 @@ Synchronize your local main branch with the remote repository and optionally cre
    - If no new commits, confirm main was already up to date
 
 9. **Ask if user wants to create a new feature branch**
-   - Use AskUserQuestion tool with options:
+   - Ask using the current tool's supported interaction method:
      - "Would you like to create a new feature branch?"
        - Option 1: Yes, create new branch (prompt for branch name)
        - Option 2: No, stay on main
 
 10. **If creating new branch**
-    - Ask for branch name using AskUserQuestion
+    - Ask for the branch name using the current tool's supported interaction method
     - Validate branch name follows Git naming conventions
     - Create and checkout the new branch:
       ```bash
@@ -88,6 +97,7 @@ Synchronize your local main branch with the remote repository and optionally cre
 - **Clean Merges**: Only fast-forward pulls on main using `--ff-only` flag (no merge commits)
 - **Branch Naming**: Validate branch name follows Git naming conventions (e.g., no spaces or control characters, cannot start with `-`, `.`, or `/`, cannot contain `..`, `@{`, `\`, or end with `.lock`, cannot end with `/` or `.`)
 - **Remote Tracking**: New branches are created locally. Set up tracking on first push with: `git push -u origin <branch-name>`
+- **Destructive recovery**: Obtain explicit confirmation immediately before discarding changes, deleting or recreating a branch, or resetting diverged state. Do not run a destructive reset merely because it appears in recovery guidance.
 
 ## Error Handling
 
@@ -105,8 +115,8 @@ Common errors:
 
 **Example 1: Simple sync, no new branch**
 ```
-User: /sync-main
-Claude: Fetching latest changes...
+User: <provider-specific sync-main invocation>
+AI: Fetching latest changes...
         No uncommitted changes detected.
         Local main is behind by 3 commits. Updating...
         Successfully pulled 3 new commits:
@@ -121,8 +131,8 @@ Claude: Fetching latest changes...
 
 **Example 2: Sync with uncommitted changes**
 ```
-User: /sync-main
-Claude: You have uncommitted changes on branch 'feature-xyz'.
+User: <provider-specific sync-main invocation>
+AI: You have uncommitted changes on branch 'feature-xyz'.
         What would you like to do?
         [User selects: Stash changes and continue]
         Stashing changes...
@@ -140,8 +150,8 @@ Claude: You have uncommitted changes on branch 'feature-xyz'.
 
 **Example 3: Sync and create new branch**
 ```
-User: /sync-main
-Claude: Fetching latest changes...
+User: <provider-specific sync-main invocation>
+AI: Fetching latest changes...
         No uncommitted changes detected.
         Local main is up to date with origin.
         Would you like to create a new feature branch?

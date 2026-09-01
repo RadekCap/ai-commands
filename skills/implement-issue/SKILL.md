@@ -17,6 +17,8 @@ Automatically analyze a GitHub issue or JIRA ticket, implement the required chan
 - `/implement-issue 72` (GitHub issue)
 - `/implement-issue ACM-12345` (JIRA ticket)
 
+At the start, determine the current AI tool and model from the active runtime. Use those values consistently for generated attribution, for example `Generated with Codex` and `Assisted-by: Codex GPT-5`, without guessing unavailable model details.
+
 ## Workflow
 
 1. **Validate input and detect type**
@@ -60,8 +62,8 @@ Automatically analyze a GitHub issue or JIRA ticket, implement the required chan
    - Determine affected files by:
      - Reading issue description for file/path mentions
      - Searching codebase for relevant code patterns
-     - Using Grep/Glob tools to find related files
-   - Check CLAUDE.md for repository-specific patterns and guidelines
+     - Searching repository paths and file contents for related code
+   - Read all applicable repository instruction files, such as `AGENTS.md`, `CLAUDE.md`, or `GEMINI.md`, without assuming that any one exists
    - Create a mental implementation plan
 
 4. **Check current git status**
@@ -92,7 +94,7 @@ Automatically analyze a GitHub issue or JIRA ticket, implement the required chan
      git checkout -b <branch-name>
      ```
 
-7. **Use TodoWrite tool to create implementation plan**
+7. **Create and maintain an implementation plan using the current AI tool's planning capability**
    - Break down the implementation into specific tasks
    - Examples:
      - "Read current implementation of X"
@@ -102,21 +104,21 @@ Automatically analyze a GitHub issue or JIRA ticket, implement the required chan
      - "Run tests to verify changes"
      - "Commit changes"
      - "Create pull request"
-   - Mark first task as in_progress
+   - Mark the first task as in progress when the current tool supports task states
 
 8. **Implement the fix**
-   - Follow repository patterns from CLAUDE.md
+   - Follow applicable repository instructions and existing code patterns
    - Read existing code before making changes
-   - Implement changes step-by-step, updating TodoWrite as you progress
+   - Implement changes step-by-step, updating the plan as you progress
    - For code changes:
-     - Use Read tool to understand existing code
-     - Use Edit/Write tools to make changes
+     - Inspect the existing code before editing it
+     - Use the current tool's file-editing capability to make changes
      - Follow existing code style and patterns
      - Add comments where logic isn't self-evident
 
 9. **Run relevant tests**
    - Determine which tests to run based on the project:
-     - Check CLAUDE.md for test commands
+     - Check applicable repository instructions for test commands
      - Check package.json scripts, Makefile targets, or equivalent
      - Run project-specific test/lint/build commands
    - If tests fail:
@@ -127,7 +129,7 @@ Automatically analyze a GitHub issue or JIRA ticket, implement the required chan
 
 10. **Format code**
     - Run project-specific formatting command if available
-    - Check CLAUDE.md for formatting guidelines
+    - Check applicable repository instructions for formatting guidelines
 
 11. **Commit changes**
     - Create descriptive commit message:
@@ -139,7 +141,7 @@ Automatically analyze a GitHub issue or JIRA ticket, implement the required chan
 
         Fixes #<issue-number>
 
-        Generated with [Claude Code](https://claude.com/claude-code)
+        Generated with <current AI tool>
 
         Assisted-by: <current AI tool and model>
         ```
@@ -151,7 +153,7 @@ Automatically analyze a GitHub issue or JIRA ticket, implement the required chan
 
         Ref: <JIRA-KEY>
 
-        Generated with [Claude Code](https://claude.com/claude-code)
+        Generated with <current AI tool>
 
         Assisted-by: <current AI tool and model>
         ```
@@ -180,7 +182,7 @@ Automatically analyze a GitHub issue or JIRA ticket, implement the required chan
         - ## Changes
         - ## Testing
         - Fixes #<issue-number>
-        - Generated with Claude Code
+        - Generated with <current AI tool>
       - Example:
         ```bash
         gh pr create --title "Add logging function (fixes #72)" --body "$(cat <<'EOF'
@@ -203,7 +205,7 @@ Automatically analyze a GitHub issue or JIRA ticket, implement the required chan
 
         Fixes #72
 
-        Generated with [Claude Code](https://claude.com/claude-code)
+        Generated with <current AI tool>
         EOF
         )"
         ```
@@ -216,7 +218,7 @@ Automatically analyze a GitHub issue or JIRA ticket, implement the required chan
         - ## Changes
         - ## Testing
         - Link to JIRA ticket
-        - Generated with Claude Code
+        - Generated with <current AI tool>
       - Example:
         ```bash
         gh pr create --title "Fix auth timeout (ACM-12345)" --body "$(cat <<'EOF'
@@ -241,7 +243,7 @@ Automatically analyze a GitHub issue or JIRA ticket, implement the required chan
 
         Ref: ACM-12345
 
-        Generated with [Claude Code](https://claude.com/claude-code)
+        Generated with <current AI tool>
         EOF
         )"
         ```
@@ -365,7 +367,7 @@ Automatically analyze a GitHub issue or JIRA ticket, implement the required chan
       ### Pull Request
       The full implementation details are available in PR #<pr-number>
 
-      Automated implementation via [Claude Code](https://claude.com/claude-code)
+      Automated implementation via <current AI tool>
       EOF
       )"
       ```
@@ -381,8 +383,8 @@ Automatically analyze a GitHub issue or JIRA ticket, implement the required chan
 ## Important Guidelines
 
 ### Code Quality
-- **Read before writing**: Always use Read tool to understand existing code before making changes
-- **Follow patterns**: Adhere to CLAUDE.md guidelines and existing code patterns
+- **Read before writing**: Always inspect existing code before making changes
+- **Follow patterns**: Adhere to applicable repository instructions and existing code patterns
 - **Test coverage**: Add tests for new functionality when appropriate
 - **No over-engineering**: Only implement what's requested in the issue
 - **Security**: Check for common vulnerabilities (SQL injection, XSS, command injection, etc.)
@@ -440,7 +442,7 @@ Ensure credentials.json exists at the repo root with the structure: {"jira": {"t
 
 After completing implementation, verify:
 - [ ] Issue/ticket requirements fully addressed
-- [ ] Code follows repository patterns (CLAUDE.md)
+- [ ] Code follows applicable repository instructions and existing patterns
 - [ ] Tests pass (or explanation if no tests needed)
 - [ ] Code formatted per project conventions
 - [ ] Commit message references issue number or JIRA key
@@ -455,8 +457,8 @@ After completing implementation, verify:
 ## Tips for Success
 
 1. **Read the issue carefully**: Understand exactly what's being asked before starting
-2. **Check CLAUDE.md**: Follow project-specific patterns and conventions
+2. **Check repository instructions**: Follow applicable `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, and project-specific conventions
 3. **Follow existing patterns**: Consistency is key
 4. **Test thoroughly**: Don't skip tests
-5. **Ask for clarification**: If issue is ambiguous, use AskUserQuestion to clarify with user
+5. **Ask for clarification**: If the issue is materially ambiguous, ask the user using the current tool's supported interaction method
 6. **Keep it focused**: Only implement what the issue requests, nothing more
