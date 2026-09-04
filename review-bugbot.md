@@ -1,0 +1,1 @@
+skills/review-bugbot/SKILL.md

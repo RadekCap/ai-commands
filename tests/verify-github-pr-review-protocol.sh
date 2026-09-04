@@ -63,12 +63,25 @@ index_records() {
 }
 
 capture_manifest_valid() {
-  local dir=$1 prefix=$2 scope=$3 page_count n actual manifest
+  local dir=$1 prefix=$2 scope=$3 index=${4:-} page_count n actual manifest index_hash index_count
   manifest="$dir/manifest.json"
   page_count=$(jq -er --arg scope "$scope" 'if .scope == $scope and (.pageCount | type == "number" and . >= 1) and (.pages == [range(1; .pageCount + 1)]) then .pageCount else error("invalid capture manifest") end' "$manifest") || return 1
   actual=$(find "$dir" -maxdepth 1 -type f -name "$prefix-*.json" | wc -l) || return 1
   [ "$actual" -eq "$page_count" ] || return 1
   for ((n = 1; n <= page_count; n++)); do test -f "$(printf '%s/%s-%04d.json' "$dir" "$prefix" "$n")" || return 1; done
+  [ -z "$index" ] && return 0
+  index_hash=$(sha256sum "$index" | awk '{print $1}') && index_count=$(wc -l <"$index") || return 1
+  jq -e --arg hash "$index_hash" --argjson count "$index_count" '.indexSha256 == $hash and .indexRecordCount == $count' "$manifest" >/dev/null
+}
+
+findings_index_valid() {
+  jq -e 'type == "object" and (.threadId | type == "string" and length > 0) and (.resolved | type == "boolean") and (.commentId | type == "number") and (.author | type == "string" and length > 0) and (.path | type == "string") and ((.line == null) or (.line | type == "number")) and ((.startLine == null) or (.startLine | type == "number")) and (.body | type == "string" and length <= 600) and (.bodyLength | type) == "number" and .bodyLength >= (.body | length) and (.bodyTruncated | type) == "boolean" and .bodyTruncated == (.bodyLength > (.body | length))' "$1" >/dev/null
+}
+
+index_matches_raw_thread_pages() {
+  local page=$1 index=$2 expected="$test_root/expected-index" canonical="$test_root/canonical-index"
+  jq -c '.data.repository.pullRequest.reviewThreads.nodes[]? | .comments.nodes[0] as $c | {threadId:.id,resolved:.isResolved,commentId:$c.databaseId,author:$c.author.login,path:$c.path,line:$c.line,startLine:($c.startLine // $c.line),body:($c.body[0:600]),bodyLength:($c.body | length),bodyTruncated:(($c.body | length) > 600)}' "$page" >"$expected" &&
+    jq -c . "$index" >"$canonical" && cmp -s "$expected" "$canonical"
 }
 
 if page_info <<<'{}' >/dev/null 2>&1; then fail "malformed GraphQL response was accepted"; fi
@@ -121,6 +134,24 @@ if capture_manifest_valid "$collection" page threads:test; then fail "missing fi
 printf '[]\n' >"$collection/page-0001.json"
 printf '[]\n' >"$collection/page-0003.json"
 if capture_manifest_valid "$collection" page threads:test; then fail "orphan later page was accepted for reuse"; fi
+
+bound_collection="$test_root/bound-collection"; mkdir "$bound_collection"
+bound_index="$test_root/bound-findings.ndjson"
+printf '%s\n' '{"threadId":"thread-1","resolved":false,"commentId":1,"author":"qodo","path":"file","line":1,"startLine":1,"body":"finding","bodyLength":7,"bodyTruncated":false}' >"$bound_index"
+printf '[]\n' >"$bound_collection/page-0001.json"
+bound_hash=$(sha256sum "$bound_index" | awk '{print $1}')
+printf '{"scope":"threads:test","pageCount":1,"pages":[1],"indexSha256":"%s","indexRecordCount":1}\n' "$bound_hash" >"$bound_collection/manifest.json"
+findings_index_valid "$bound_index" || fail "valid findings index was rejected"
+capture_manifest_valid "$bound_collection" page threads:test "$bound_index" || fail "bound findings index was rejected"
+if index_matches_raw_thread_pages "$bound_collection/page-0001.json" "$bound_index"; then fail "findings index mismatch with raw thread page was accepted"; fi
+printf '%s\n' '{"threadId":false}' >"$bound_index"
+if findings_index_valid "$bound_index"; then fail "malformed completed findings index was accepted"; fi
+if capture_manifest_valid "$bound_collection" page threads:test "$bound_index"; then fail "findings index mismatch with raw-page manifest was accepted"; fi
+
+repo_root=$(cd "$(dirname "$0")/.." && pwd)
+for link in review.md review-bugbot.md review-security.md; do
+  test -L "$repo_root/$link" || fail "missing legacy compatibility symlink: $link"
+done
 
 git init -q -b main "$test_root/base"
 git -C "$test_root/base" config user.email test@example.invalid

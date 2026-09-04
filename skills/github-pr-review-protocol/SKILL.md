@@ -114,23 +114,38 @@ Save every API response before deriving an index. Never print a response body or
 THREAD_DIR="$REVIEW_DATA_DIR/threads"; COMMENT_DIR="$REVIEW_DATA_DIR/comments"
 if ! install -d -m 700 "$THREAD_DIR" "$COMMENT_DIR"; then echo "Failed to create reviewer-data directories." >&2; exit 1; fi
 capture_manifest_valid() {
-  local dir=$1 prefix=$2 scope=$3 page_count n actual manifest
+  local dir=$1 prefix=$2 scope=$3 index=${4:-} page_count n actual manifest index_hash index_count
   manifest="$dir/manifest.json"
   page_count=$(jq -er --arg scope "$scope" 'if .scope == $scope and (.pageCount | type == "number" and . >= 1) and (.pages == [range(1; .pageCount + 1)]) then .pageCount else error("invalid capture manifest") end' "$manifest") || return 1
   actual=$(find "$dir" -maxdepth 1 -type f -name "$prefix-*.json" | wc -l) || return 1
   [ "$actual" -eq "$page_count" ] || return 1
   for ((n = 1; n <= page_count; n++)); do test -f "$(printf '%s/%s-%04d.json' "$dir" "$prefix" "$n")" || return 1; done
+  [ -z "$index" ] && return 0
+  index_hash=$(sha256sum "$index" | awk '{print $1}') && index_count=$(wc -l <"$index") || return 1
+  jq -e --arg hash "$index_hash" --argjson count "$index_count" '.indexSha256 == $hash and .indexRecordCount == $count' "$manifest" >/dev/null
 }
 write_capture_manifest() {
-  local dir=$1 scope=$2 page_count=$3 manifest
+  local dir=$1 scope=$2 page_count=$3 index=${4:-} manifest index_hash index_count
   manifest="$dir/manifest.json"
-  jq -cn --arg scope "$scope" --argjson pageCount "$page_count" '{scope:$scope,pageCount:$pageCount,pages:[range(1; $pageCount + 1)]}' >"$manifest" || return 1
+  if [ -n "$index" ]; then
+    index_hash=$(sha256sum "$index" | awk '{print $1}') && index_count=$(wc -l <"$index") || return 1
+    jq -cn --arg scope "$scope" --argjson pageCount "$page_count" --arg hash "$index_hash" --argjson count "$index_count" '{scope:$scope,pageCount:$pageCount,pages:[range(1; $pageCount + 1)],indexSha256:$hash,indexRecordCount:$count}' >"$manifest" || return 1
+  else
+    jq -cn --arg scope "$scope" --argjson pageCount "$page_count" '{scope:$scope,pageCount:$pageCount,pages:[range(1; $pageCount + 1)]}' >"$manifest" || return 1
+  fi
 }
 INDEX="$REVIEW_DATA_DIR/findings.ndjson"; COMPLETE="$THREAD_DIR/complete"
 THREAD_SCOPE="threads:$OWNER/$REPO#$PR_NUMBER@$BASE_SHA:$HEAD_SHA"
 if [ -e "$INDEX" ] || [ -e "$THREAD_DIR/page-0001.json" ] || [ -e "$THREAD_DIR/manifest.json" ] || [ -e "$COMPLETE" ]; then
-  test -f "$COMPLETE" && test -f "$INDEX" && capture_manifest_valid "$THREAD_DIR" page "$THREAD_SCOPE" || {
+  test -f "$COMPLETE" && test -f "$INDEX" && capture_manifest_valid "$THREAD_DIR" page "$THREAD_SCOPE" "$INDEX" || {
     echo "Integrity error: existing thread collection is incomplete; refusing to overwrite it." >&2; exit 1; }
+  REBUILT_INDEX=$(mktemp "$THREAD_DIR/.findings-rebuilt.XXXXXX") || { echo "Failed to create thread-index verification file." >&2; exit 1; }
+  CANONICAL_INDEX=$(mktemp "$THREAD_DIR/.findings-canonical.XXXXXX") || { echo "Failed to create canonical-index verification file." >&2; exit 1; }
+  if ! { for ((VERIFY_PAGE = 1; VERIFY_PAGE <= $(jq -er '.pageCount' "$THREAD_DIR/manifest.json"); VERIFY_PAGE++)); do jq -c '.data.repository.pullRequest.reviewThreads.nodes[]? | .comments.nodes[0] as $c | {threadId:.id,resolved:.isResolved,commentId:$c.databaseId,author:$c.author.login,path:$c.path,line:$c.line,startLine:($c.startLine // $c.line),body:($c.body[0:600]),bodyLength:($c.body | length),bodyTruncated:(($c.body | length) > 600)}' "$(printf '%s/page-%04d.json' "$THREAD_DIR" "$VERIFY_PAGE")"; done; } >"$REBUILT_INDEX" || ! jq -c . "$INDEX" >"$CANONICAL_INDEX" || ! cmp -s "$REBUILT_INDEX" "$CANONICAL_INDEX"; then
+    rm -f "$REBUILT_INDEX" "$CANONICAL_INDEX"
+    echo "Integrity error: findings index does not match verified raw thread pages." >&2; exit 1
+  fi
+  rm -f "$REBUILT_INDEX" "$CANONICAL_INDEX" || { echo "Failed to remove thread-index verification files." >&2; exit 1; }
   echo "Reusing verified thread index: $INDEX"
 else
   : >"$INDEX" || { echo "Failed to create finding index." >&2; exit 1; }
@@ -157,7 +172,7 @@ else
     [ "$HAS_NEXT" = true ] || break
     CURSOR=$(jq -er '.endCursor | strings | select(length > 0)' <<<"$PAGE_INFO") || { echo "Missing thread cursor." >&2; exit 1; }
   done
-  write_capture_manifest "$THREAD_DIR" "$THREAD_SCOPE" "$PAGE" || { echo "Failed to write thread collection manifest." >&2; exit 1; }
+  write_capture_manifest "$THREAD_DIR" "$THREAD_SCOPE" "$PAGE" "$INDEX" || { echo "Failed to write thread collection manifest." >&2; exit 1; }
   touch "$COMPLETE" || { echo "Failed to mark thread collection complete." >&2; exit 1; }
 fi
 ```
@@ -165,6 +180,11 @@ fi
 Paginate comments for each thread with the same capture-only rule. Existing incomplete files are an integrity error; a completion marker makes the collection reusable:
 
 ```bash
+if ! jq -e 'type == "object" and (.threadId | type == "string" and length > 0) and (.resolved | type == "boolean") and (.commentId | type == "number") and (.author | type == "string" and length > 0) and (.path | type == "string") and ((.line == null) or (.line | type == "number")) and ((.startLine == null) or (.startLine | type == "number")) and (.body | type == "string" and length <= 600) and (.bodyLength | type) == "number" and .bodyLength >= (.body | length) and (.bodyTruncated | type) == "boolean" and .bodyTruncated == (.bodyLength > (.body | length))' "$INDEX" >/dev/null; then
+  echo "Integrity error: findings index is malformed; refusing to collect comments." >&2; exit 1
+fi
+THREAD_IDS_FILE="$THREAD_DIR/thread-ids"
+if ! jq -r '.threadId' "$INDEX" >"$THREAD_IDS_FILE"; then echo "Failed to parse findings index." >&2; exit 1; fi
 THREAD_N=0
 while IFS= read -r THREAD_ID; do
   THREAD_N=$((THREAD_N + 1)); COMMENT_COMPLETE=$(printf '%s/comment-%04d.complete' "$COMMENT_DIR" "$THREAD_N")
@@ -198,7 +218,7 @@ while IFS= read -r THREAD_ID; do
   done
   jq -cn --arg scope "$COMMENT_SCOPE" --argjson pageCount "$COMMENT_PAGE" '{scope:$scope,pageCount:$pageCount,pages:[range(1; $pageCount + 1)]}' >"$COMMENT_MANIFEST" || { echo "Failed to write comment collection manifest." >&2; exit 1; }
   touch "$COMMENT_COMPLETE" || { echo "Failed to mark comment collection complete." >&2; exit 1; }
-done < <(jq -r '.threadId' "$INDEX")
+done <"$THREAD_IDS_FILE"
 ```
 
 Capture Qodo's issue comments and commit checks before deciding whether Qodo is clean. These endpoints are bounded and fail closed: each response is schema-validated and persisted before the terminal decision; an API error, malformed record, or page cap leaves no completion marker. Do not treat an absent Qodo result as clean unless both collections have their completion markers.
