@@ -19,7 +19,7 @@ if ! BASE_PR=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER"); then
   echo "Failed to fetch base repository from pull-request endpoint." >&2; exit 1
 fi
 if ! PR_STATE=$(jq -er '.state | strings | select(length > 0)' <<<"$PR") ||
-   ! PR_IS_DRAFT=$(jq -er '.isDraft | booleans' <<<"$PR") ||
+   ! PR_IS_DRAFT=$(jq -er 'if (.isDraft | type) == "boolean" then .isDraft | tostring else empty end' <<<"$PR") ||
    ! HEAD_SHA=$(jq -er '.headRefOid | strings | select(length > 0)' <<<"$PR") ||
    ! BASE_SHA=$(jq -er '.baseRefOid | strings | select(length > 0)' <<<"$PR"); then
   echo "Invalid PR manifest: missing state, draft status, base SHA, or head SHA." >&2; exit 1
