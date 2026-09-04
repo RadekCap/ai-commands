@@ -12,16 +12,17 @@ Use this protocol before a PR review skill reads a diff or edits code. Its outpu
 Resolve the argument (URL, number, or current branch) to `OWNER`, `REPO`, and `PR_NUMBER`, then export `GH_REPO="$OWNER/$REPO"`. Fetch this minimum immutable manifest and save it as `manifest.json`:
 
 ```bash
-if ! PR=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json number,title,state,baseRefName,baseRefOid,baseRepository,headRefName,headRefOid,headRepository,headRepositoryOwner,files,additions,deletions,body); then
+if ! PR=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json number,title,state,isDraft,baseRefName,baseRefOid,baseRepository,headRefName,headRefOid,headRepository,headRepositoryOwner,files,additions,deletions,body); then
   echo "Failed to fetch PR manifest." >&2; exit 1
 fi
 if ! PR_STATE=$(jq -er '.state | strings | select(length > 0)' <<<"$PR") ||
+   ! PR_IS_DRAFT=$(jq -er '.isDraft | booleans' <<<"$PR") ||
    ! HEAD_SHA=$(jq -er '.headRefOid | strings | select(length > 0)' <<<"$PR") ||
    ! BASE_SHA=$(jq -er '.baseRefOid | strings | select(length > 0)' <<<"$PR"); then
-  echo "Invalid PR manifest: missing state, base SHA, or head SHA." >&2; exit 1
+  echo "Invalid PR manifest: missing state, draft status, base SHA, or head SHA." >&2; exit 1
 fi
-if [ "$PR_STATE" != OPEN ] && [ "${REVIEW_NON_OPEN_PR:-}" != 1 ]; then
-  echo "Refusing to review PR state $PR_STATE; explicit user authorization is required." >&2; exit 1
+if { [ "$PR_STATE" != OPEN ] || [ "$PR_IS_DRAFT" = true ]; } && [ "${REVIEW_NON_OPEN_PR:-}" != 1 ]; then
+  echo "Refusing to review PR state $PR_STATE (draft=$PR_IS_DRAFT); explicit user authorization is required." >&2; exit 1
 fi
 REVIEW_DATA_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/pr-review/${OWNER}-${REPO}-${PR_NUMBER}-${BASE_SHA}-${HEAD_SHA}"
 if ! install -d -m 700 "$REVIEW_DATA_DIR"; then echo "Failed to create review-data directory." >&2; exit 1; fi
@@ -35,7 +36,7 @@ else
 fi
 ```
 
-Do not continue unless `PR_STATE` is `OPEN`. To review a closed, merged, or draft PR, the user must explicitly authorize that exact exception in the request; only then set `REVIEW_NON_OPEN_PR=1` for that invocation and record the authorization and state in the review header. Never set this override by inference or for a later mutation. Store raw API responses in this directory and derive compact summaries from them; do not paste raw JSON or a whole diff into chat.
+Do not continue unless `PR_STATE` is `OPEN` and `PR_IS_DRAFT=false`. To review a closed, merged, or draft PR, the user must explicitly authorize that exact exception in the request; only then set `REVIEW_NON_OPEN_PR=1` for that invocation and record the authorization, state, and draft status in the review header. Never set this override by inference or for a later mutation. Store raw API responses in this directory and derive compact summaries from them; do not paste raw JSON or a whole diff into chat.
 
 With no argument, detect the current branch's PR; if none exists, ask whether to provide a PR or cancel. A URL supplies its own owner/repository; a number uses the active repository. Read applicable repository instructions from the dedicated worktree before reviewing.
 
@@ -112,9 +113,23 @@ Save every API response before deriving an index. Never print a response body or
 ```bash
 THREAD_DIR="$REVIEW_DATA_DIR/threads"; COMMENT_DIR="$REVIEW_DATA_DIR/comments"
 if ! install -d -m 700 "$THREAD_DIR" "$COMMENT_DIR"; then echo "Failed to create reviewer-data directories." >&2; exit 1; fi
+capture_manifest_valid() {
+  local dir=$1 prefix=$2 scope=$3 page_count n actual manifest
+  manifest="$dir/manifest.json"
+  page_count=$(jq -er --arg scope "$scope" 'if .scope == $scope and (.pageCount | type == "number" and . >= 1) and (.pages == [range(1; .pageCount + 1)]) then .pageCount else error("invalid capture manifest") end' "$manifest") || return 1
+  actual=$(find "$dir" -maxdepth 1 -type f -name "$prefix-*.json" | wc -l) || return 1
+  [ "$actual" -eq "$page_count" ] || return 1
+  for ((n = 1; n <= page_count; n++)); do test -f "$(printf '%s/%s-%04d.json' "$dir" "$prefix" "$n")" || return 1; done
+}
+write_capture_manifest() {
+  local dir=$1 scope=$2 page_count=$3 manifest
+  manifest="$dir/manifest.json"
+  jq -cn --arg scope "$scope" --argjson pageCount "$page_count" '{scope:$scope,pageCount:$pageCount,pages:[range(1; $pageCount + 1)]}' >"$manifest" || return 1
+}
 INDEX="$REVIEW_DATA_DIR/findings.ndjson"; COMPLETE="$THREAD_DIR/complete"
-if [ -e "$INDEX" ] || [ -e "$THREAD_DIR/page-0001.json" ]; then
-  test -f "$COMPLETE" && test -f "$INDEX" || {
+THREAD_SCOPE="threads:$OWNER/$REPO#$PR_NUMBER@$BASE_SHA:$HEAD_SHA"
+if [ -e "$INDEX" ] || [ -e "$THREAD_DIR/page-0001.json" ] || [ -e "$THREAD_DIR/manifest.json" ] || [ -e "$COMPLETE" ]; then
+  test -f "$COMPLETE" && test -f "$INDEX" && capture_manifest_valid "$THREAD_DIR" page "$THREAD_SCOPE" || {
     echo "Integrity error: existing thread collection is incomplete; refusing to overwrite it." >&2; exit 1; }
   echo "Reusing verified thread index: $INDEX"
 else
@@ -142,6 +157,7 @@ else
     [ "$HAS_NEXT" = true ] || break
     CURSOR=$(jq -er '.endCursor | strings | select(length > 0)' <<<"$PAGE_INFO") || { echo "Missing thread cursor." >&2; exit 1; }
   done
+  write_capture_manifest "$THREAD_DIR" "$THREAD_SCOPE" "$PAGE" || { echo "Failed to write thread collection manifest." >&2; exit 1; }
   touch "$COMPLETE" || { echo "Failed to mark thread collection complete." >&2; exit 1; }
 fi
 ```
@@ -153,8 +169,13 @@ THREAD_N=0
 while IFS= read -r THREAD_ID; do
   THREAD_N=$((THREAD_N + 1)); COMMENT_COMPLETE=$(printf '%s/comment-%04d.complete' "$COMMENT_DIR" "$THREAD_N")
   FIRST_COMMENT_PAGE=$(printf '%s/comment-%04d-page-0001.json' "$COMMENT_DIR" "$THREAD_N")
-  if [ -e "$FIRST_COMMENT_PAGE" ]; then
-    test -f "$COMMENT_COMPLETE" || { echo "Integrity error: incomplete comment collection." >&2; exit 1; }
+  COMMENT_SCOPE="comments:$THREAD_ID@$HEAD_SHA"; COMMENT_MANIFEST=$(printf '%s/comment-%04d.manifest.json' "$COMMENT_DIR" "$THREAD_N")
+  if [ -e "$FIRST_COMMENT_PAGE" ] || [ -e "$COMMENT_MANIFEST" ] || [ -e "$COMMENT_COMPLETE" ]; then
+    test -f "$COMMENT_COMPLETE" && test -f "$COMMENT_MANIFEST" && jq -e --arg scope "$COMMENT_SCOPE" '.scope == $scope and (.pageCount | type == "number" and . >= 1) and (.pages == [range(1; .pageCount + 1)])' "$COMMENT_MANIFEST" >/dev/null || { echo "Integrity error: incomplete comment collection." >&2; exit 1; }
+    COMMENT_COUNT=$(jq -er '.pageCount' "$COMMENT_MANIFEST") || { echo "Integrity error: invalid comment collection manifest." >&2; exit 1; }
+    COMMENT_FILES=$(find "$COMMENT_DIR" -maxdepth 1 -type f -name "comment-$(printf '%04d' "$THREAD_N")-page-*.json" | wc -l) || { echo "Integrity error: cannot inspect comment pages." >&2; exit 1; }
+    [ "$COMMENT_FILES" -eq "$COMMENT_COUNT" ] || { echo "Integrity error: comment page set is incomplete or mixed." >&2; exit 1; }
+    for ((COMMENT_N = 1; COMMENT_N <= COMMENT_COUNT; COMMENT_N++)); do test -f "$(printf '%s/comment-%04d-page-%04d.json' "$COMMENT_DIR" "$THREAD_N" "$COMMENT_N")" || { echo "Integrity error: comment page set is incomplete or mixed." >&2; exit 1; }; done
     continue
   fi
   COMMENT_CURSOR=; COMMENT_PAGE=0; MAX_COMMENT_PAGES=20
@@ -175,6 +196,7 @@ while IFS= read -r THREAD_ID; do
     [ "$COMMENT_HAS_NEXT" = true ] || break
     COMMENT_CURSOR=$(jq -er '.endCursor | strings | select(length > 0)' <<<"$COMMENT_PAGE_INFO") || { echo "Missing comment cursor." >&2; exit 1; }
   done
+  jq -cn --arg scope "$COMMENT_SCOPE" --argjson pageCount "$COMMENT_PAGE" '{scope:$scope,pageCount:$pageCount,pages:[range(1; $pageCount + 1)]}' >"$COMMENT_MANIFEST" || { echo "Failed to write comment collection manifest." >&2; exit 1; }
   touch "$COMMENT_COMPLETE" || { echo "Failed to mark comment collection complete." >&2; exit 1; }
 done < <(jq -r '.threadId' "$INDEX")
 ```
@@ -185,8 +207,10 @@ Capture Qodo's issue comments and commit checks before deciding whether Qodo is 
 QODO_COMMENT_DIR="$REVIEW_DATA_DIR/qodo-issue-comments"; QODO_CHECK_DIR="$REVIEW_DATA_DIR/qodo-checks"
 if ! install -d -m 700 "$QODO_COMMENT_DIR" "$QODO_CHECK_DIR"; then echo "Failed to create Qodo-data directories." >&2; exit 1; fi
 QODO_COMMENT_COMPLETE="$QODO_COMMENT_DIR/complete"; QODO_CHECK_COMPLETE="$QODO_CHECK_DIR/complete"
-if [ -e "$QODO_COMMENT_DIR/page-0001.json" ]; then
-  test -f "$QODO_COMMENT_COMPLETE" || { echo "Integrity error: incomplete Qodo issue-comment collection." >&2; exit 1; }
+QODO_COMMENT_SCOPE="qodo-issue-comments:$OWNER/$REPO#$PR_NUMBER@$HEAD_SHA"
+QODO_CHECK_SCOPE="qodo-checks:$OWNER/$REPO#$PR_NUMBER@$HEAD_SHA"
+if [ -e "$QODO_COMMENT_DIR/page-0001.json" ] || [ -e "$QODO_COMMENT_DIR/manifest.json" ] || [ -e "$QODO_COMMENT_COMPLETE" ]; then
+  test -f "$QODO_COMMENT_COMPLETE" && capture_manifest_valid "$QODO_COMMENT_DIR" page "$QODO_COMMENT_SCOPE" || { echo "Integrity error: incomplete or mixed Qodo issue-comment collection." >&2; exit 1; }
 else
   QODO_PAGE=0; MAX_QODO_COMMENT_PAGES=100
   while :; do
@@ -198,10 +222,11 @@ else
     [ "$(jq -er 'length' <<<"$QODO_RESPONSE")" -lt 100 ] || continue
     break
   done
+  write_capture_manifest "$QODO_COMMENT_DIR" "$QODO_COMMENT_SCOPE" "$QODO_PAGE" || { echo "Failed to write Qodo issue-comment collection manifest." >&2; exit 1; }
   touch "$QODO_COMMENT_COMPLETE" || { echo "Failed to mark Qodo issue-comment collection complete." >&2; exit 1; }
 fi
-if [ -e "$QODO_CHECK_DIR/page-0001.json" ]; then
-  test -f "$QODO_CHECK_COMPLETE" || { echo "Integrity error: incomplete Qodo checks collection." >&2; exit 1; }
+if [ -e "$QODO_CHECK_DIR/page-0001.json" ] || [ -e "$QODO_CHECK_DIR/manifest.json" ] || [ -e "$QODO_CHECK_COMPLETE" ]; then
+  test -f "$QODO_CHECK_COMPLETE" && capture_manifest_valid "$QODO_CHECK_DIR" page "$QODO_CHECK_SCOPE" || { echo "Integrity error: incomplete or mixed Qodo checks collection." >&2; exit 1; }
 else
   QODO_PAGE=0; MAX_QODO_CHECK_PAGES=100
   while :; do
@@ -213,6 +238,7 @@ else
     QODO_TOTAL=$(jq -er '.total_count' <<<"$QODO_RESPONSE") || { echo "Invalid Qodo checks total." >&2; exit 1; }
     [ $((QODO_PAGE * 100)) -lt "$QODO_TOTAL" ] || break
   done
+  write_capture_manifest "$QODO_CHECK_DIR" "$QODO_CHECK_SCOPE" "$QODO_PAGE" || { echo "Failed to write Qodo checks collection manifest." >&2; exit 1; }
   touch "$QODO_CHECK_COMPLETE" || { echo "Failed to mark Qodo checks collection complete." >&2; exit 1; }
 fi
 if ! QODO_NONTERMINAL_CHECKS=$(jq -r 'select(.check_runs != null) | .check_runs[] | select((.name | ascii_downcase | contains("qodo")) and .status != "completed") | .html_url' "$QODO_CHECK_DIR"/page-*.json); then echo "Failed to classify Qodo check status." >&2; exit 1; fi
