@@ -197,9 +197,11 @@ rg -q 'fetch --no-tags review-base "\$BASE_SHA:refs/remotes/review/base"' "$prot
 if rg -q 'fetch --no-tags review-base "\$BASE_REF:refs/remotes/review/base"' "$protocol"; then
   fail "protocol treats the moving base branch as the pinned base commit"
 fi
-rg -q 'mktemp -d "\$\{REVIEW_DATA_DIR\}\.tmp\.XXXXXX"' "$protocol" || fail "protocol does not stage a fresh bundle in a unique sibling directory"
-rg -q 'mv -T "\$STAGING_DATA_DIR" "\$REVIEW_DATA_DIR"' "$protocol" || fail "protocol does not atomically publish a verified fresh bundle"
-rg -q 'rm -rf "\$STAGING_DATA_DIR"' "$protocol" || fail "protocol does not clean failed staging bundles"
+rg -q 'mkdir -m 700 "\$REVIEW_DATA_DIR"' "$protocol" || fail "protocol does not exclusively create the final review bundle path"
+rg -q 'rm -rf "\$REVIEW_DATA_DIR"' "$protocol" || fail "protocol does not clean its failed fresh review bundle"
+if rg -q 'STAGING_DATA_DIR|mv -T' "$protocol"; then
+  fail "protocol still moves a Git worktree after setup"
+fi
 for link in review.md review-bugbot.md review-security.md; do
   test -L "$repo_root/$link" || fail "missing legacy compatibility symlink: $link"
 done
@@ -238,32 +240,36 @@ verify_reuse || fail "matching worktree was not reusable"
 git -C "$worktree" reset --hard "$base_sha" >/dev/null
 if verify_reuse; then fail "mismatched worktree was reusable"; fi
 
-# Fresh setup must be atomic: a failed attempt may remove only its unique
-# staging directory, so the manifest-keyed final bundle remains absent and a
-# subsequent attempt can create a complete bundle.
+# Fresh setup creates the final path exclusively. If setup fails, it cleans only
+# that newly created bundle; a subsequent attempt can create a complete bundle.
 atomic_bundle="$test_root/atomic-bundle"
-create_atomic_bundle() {
-  local target=$1 fail_after_fetch=${2:-false} stage stage_repo stage_worktree
+create_final_bundle() {
+  local target=$1 fail_after_fetch=${2:-false} repo worktree created=false
   [ ! -e "$target" ] || return 2
-  stage=$(mktemp -d "${target}.tmp.XXXXXX") || return 1
-  stage_repo="$stage/repo"; stage_worktree="$stage/worktree"
-  cleanup_atomic_stage() { rm -rf "$stage"; }
-  trap cleanup_atomic_stage RETURN
-  git init -q "$stage_repo" || return 1
-  git -C "$stage_repo" remote add review-base "$test_root/base" || return 1
-  git -C "$stage_repo" remote add review-head "$test_root/fork" || return 1
-  git -C "$stage_repo" fetch --no-tags review-base "$base_sha:refs/remotes/review/base" >/dev/null || return 1
+  mkdir -m 700 "$target" || return 1
+  created=true
+  repo="$target/repo"; worktree="$target/worktree"
+  cleanup_final_bundle() {
+    git -C "$repo" worktree remove --force "$worktree" >/dev/null 2>&1 || true
+    rm -rf "$target"
+  }
+  trap cleanup_final_bundle RETURN
+  git init -q "$repo" || return 1
+  git -C "$repo" remote add review-base "$test_root/base" || return 1
+  git -C "$repo" remote add review-head "$test_root/fork" || return 1
+  git -C "$repo" fetch --no-tags review-base "$base_sha:refs/remotes/review/base" >/dev/null || return 1
   [ "$fail_after_fetch" = false ] || return 1
-  git -C "$stage_repo" fetch --no-tags review-head "$head_sha" >/dev/null || return 1
-  git -C "$stage_repo" worktree add --detach "$stage_worktree" "$head_sha" >/dev/null || return 1
-  test "$(git -C "$stage_repo" rev-parse refs/remotes/review/base)" = "$base_sha" || return 1
-  test "$(git -C "$stage_worktree" rev-parse HEAD)" = "$head_sha" || return 1
-  mv -T "$stage" "$target" || return 1
+  git -C "$repo" fetch --no-tags review-head "$head_sha" >/dev/null || return 1
+  git -C "$repo" worktree add --detach "$worktree" "$head_sha" >/dev/null || return 1
+  test "$(git -C "$repo" rev-parse refs/remotes/review/base)" = "$base_sha" || return 1
+  test "$(git -C "$worktree" rev-parse HEAD)" = "$head_sha" || return 1
+  git -C "$worktree" diff --no-ext-diff "$base_sha...$head_sha" --stat >/dev/null || return 1
+  created=false
   trap - RETURN
 }
-if create_atomic_bundle "$atomic_bundle" true; then fail "forced fresh setup failure unexpectedly succeeded"; fi
+if create_final_bundle "$atomic_bundle" true; then fail "forced fresh setup failure unexpectedly succeeded"; fi
 test ! -e "$atomic_bundle" || fail "failed fresh setup left a final review bundle"
-create_atomic_bundle "$atomic_bundle" || fail "retry could not create a fresh review bundle"
-test -d "$atomic_bundle/repo/.git" && test -d "$atomic_bundle/worktree" || fail "retry did not publish a complete review bundle"
+create_final_bundle "$atomic_bundle" || fail "retry could not create a fresh review bundle"
+test -d "$atomic_bundle/repo/.git" && test -d "$atomic_bundle/worktree" || fail "retry did not create a complete review bundle"
 
 echo "PASS: state, malformed/cursor, Qodo pagination schemas, truncation, empty-index, and restart checks"
