@@ -42,14 +42,15 @@ if { [ "$PR_STATE" != OPEN ] || [ "$PR_IS_DRAFT" = true ]; } && [ "${REVIEW_NON_
   echo "Refusing to review PR state $PR_STATE (draft=$PR_IS_DRAFT); explicit user authorization is required." >&2; exit 1
 fi
 REVIEW_DATA_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/pr-review/${OWNER}-${REPO}-${PR_NUMBER}-${BASE_SHA}-${HEAD_SHA}"
-if ! install -d -m 700 "$REVIEW_DATA_DIR"; then echo "Failed to create review-data directory." >&2; exit 1; fi
+REVIEW_DATA_ROOT=$(dirname "$REVIEW_DATA_DIR")
+if ! install -d -m 700 "$REVIEW_DATA_ROOT"; then echo "Failed to create review-data root directory." >&2; exit 1; fi
 MANIFEST="$REVIEW_DATA_DIR/manifest.json"
-if [ -e "$MANIFEST" ]; then
+if [ -e "$REVIEW_DATA_DIR" ]; then
+  test -f "$MANIFEST" || {
+    echo "Integrity error: existing review bundle has no manifest." >&2; exit 1; }
   jq -e --arg base "$BASE_SHA" --arg head "$HEAD_SHA" \
     '.baseRefOid == $base and .headRefOid == $head' "$MANIFEST" >/dev/null || {
       echo "Integrity error: existing manifest does not match the requested base/head SHA." >&2; exit 1; }
-else
-  printf '%s\n' "$PR" >"$MANIFEST"
 fi
 ```
 
@@ -57,7 +58,7 @@ Do not continue unless `PR_STATE` is `OPEN` and `PR_IS_DRAFT=false`. To review a
 
 With no argument, detect the current branch's PR; if none exists, ask whether to provide a PR or cancel. A URL supplies its own owner/repository; a number uses the active repository. Read applicable repository instructions from the dedicated worktree before reviewing.
 
-Create a dedicated Git repository inside the bundle; do not fetch into the active checkout. This setup is restart-safe: reuse it only when its remotes, pinned base commit, Git common directory, detached `HEAD`, and manifest SHAs all match. `BASE_REF` identifies the PR target branch in manifest metadata; it is not an integrity invariant because that branch may advance after the manifest was recorded. A partial or mismatched bundle is an integrity error; do not delete, overwrite, or repair it automatically.
+Create a dedicated Git repository inside the bundle; do not fetch into the active checkout. Fresh creation is atomic: create the manifest, repository, and worktree in a unique sibling staging directory, verify every invariant, then rename the staging directory into the manifest-keyed bundle path. On any fresh-setup failure, clean only that staging directory. This setup is restart-safe: reuse it only when its remotes, pinned base commit, Git common directory, detached `HEAD`, and manifest SHAs all match. `BASE_REF` identifies the PR target branch in manifest metadata; it is not an integrity invariant because that branch may advance after the manifest was recorded. A partial or mismatched final bundle is an integrity error; do not delete, overwrite, or repair it automatically.
 
 ```bash
 if ! BASE_URL=$(jq -er '.baseRepository.url | strings | select(length > 0)' "$MANIFEST") ||
@@ -67,7 +68,7 @@ if ! BASE_URL=$(jq -er '.baseRepository.url | strings | select(length > 0)' "$MA
 fi
 REVIEW_REPO="$REVIEW_DATA_DIR/repo"
 WORKTREE="$REVIEW_DATA_DIR/worktree"
-if [ -e "$REVIEW_REPO" ] || [ -e "$WORKTREE" ]; then
+if [ -e "$REVIEW_DATA_DIR" ]; then
   test -d "$REVIEW_REPO/.git" && test -d "$WORKTREE" &&
     test "$(git -C "$REVIEW_REPO" remote get-url review-base)" = "$BASE_URL" &&
     test "$(git -C "$REVIEW_REPO" remote get-url review-head)" = "$HEAD_URL" &&
@@ -78,22 +79,32 @@ if [ -e "$REVIEW_REPO" ] || [ -e "$WORKTREE" ]; then
       echo "Integrity error: existing review bundle is incomplete or does not match its manifest." >&2; exit 1; }
   echo "Reusing verified review bundle: $REVIEW_DATA_DIR"
 else
-  if ! git init -q "$REVIEW_REPO"; then echo "Failed to initialize review repository." >&2; exit 1; fi
-  if ! git -C "$REVIEW_REPO" remote add review-base "$BASE_URL"; then echo "Failed to add base remote." >&2; exit 1; fi
-  if ! git -C "$REVIEW_REPO" remote add review-head "$HEAD_URL"; then echo "Failed to add head remote." >&2; exit 1; fi
-  if ! git -C "$REVIEW_REPO" fetch --no-tags review-base "$BASE_SHA:refs/remotes/review/base"; then echo "Failed to fetch manifest-pinned base SHA." >&2; exit 1; fi
-  if ! test "$(git -C "$REVIEW_REPO" rev-parse refs/remotes/review/base)" = "$BASE_SHA"; then echo "Fetched base SHA does not match manifest." >&2; exit 1; fi
-  if ! git -C "$REVIEW_REPO" fetch --no-tags review-head "$HEAD_SHA"; then echo "Failed to fetch head SHA." >&2; exit 1; fi
-  if ! test "$(git -C "$REVIEW_REPO" rev-parse FETCH_HEAD)" = "$HEAD_SHA"; then echo "Fetched head SHA does not match manifest." >&2; exit 1; fi
-  if ! git -C "$REVIEW_REPO" worktree add --detach "$WORKTREE" "$HEAD_SHA"; then echo "Failed to create detached review worktree." >&2; exit 1; fi
-  if ! test "$(git -C "$REVIEW_REPO" remote get-url review-base)" = "$BASE_URL" ||
-     ! test "$(git -C "$REVIEW_REPO" remote get-url review-head)" = "$HEAD_URL" ||
-     ! test "$(git -C "$REVIEW_REPO" rev-parse refs/remotes/review/base)" = "$BASE_SHA" ||
-     ! test "$(git -C "$WORKTREE" rev-parse --path-format=absolute --git-common-dir)" = "$(git -C "$REVIEW_REPO" rev-parse --path-format=absolute --git-dir)" ||
-     git -C "$WORKTREE" symbolic-ref -q HEAD >/dev/null ||
-     ! test "$(git -C "$WORKTREE" rev-parse HEAD)" = "$HEAD_SHA"; then
+  STAGING_DATA_DIR=$(mktemp -d "${REVIEW_DATA_DIR}.tmp.XXXXXX") || { echo "Failed to create review-bundle staging directory." >&2; exit 1; }
+  cleanup_staging_bundle() { rm -rf "$STAGING_DATA_DIR"; }
+  trap cleanup_staging_bundle EXIT
+  STAGING_MANIFEST="$STAGING_DATA_DIR/manifest.json"
+  STAGING_REPO="$STAGING_DATA_DIR/repo"
+  STAGING_WORKTREE="$STAGING_DATA_DIR/worktree"
+  if ! printf '%s\n' "$PR" >"$STAGING_MANIFEST"; then echo "Failed to save staging manifest." >&2; exit 1; fi
+  if ! git init -q "$STAGING_REPO"; then echo "Failed to initialize review repository." >&2; exit 1; fi
+  if ! git -C "$STAGING_REPO" remote add review-base "$BASE_URL"; then echo "Failed to add base remote." >&2; exit 1; fi
+  if ! git -C "$STAGING_REPO" remote add review-head "$HEAD_URL"; then echo "Failed to add head remote." >&2; exit 1; fi
+  if ! git -C "$STAGING_REPO" fetch --no-tags review-base "$BASE_SHA:refs/remotes/review/base"; then echo "Failed to fetch manifest-pinned base SHA." >&2; exit 1; fi
+  if ! test "$(git -C "$STAGING_REPO" rev-parse refs/remotes/review/base)" = "$BASE_SHA"; then echo "Fetched base SHA does not match manifest." >&2; exit 1; fi
+  if ! git -C "$STAGING_REPO" fetch --no-tags review-head "$HEAD_SHA"; then echo "Failed to fetch head SHA." >&2; exit 1; fi
+  if ! test "$(git -C "$STAGING_REPO" rev-parse FETCH_HEAD)" = "$HEAD_SHA"; then echo "Fetched head SHA does not match manifest." >&2; exit 1; fi
+  if ! git -C "$STAGING_REPO" worktree add --detach "$STAGING_WORKTREE" "$HEAD_SHA"; then echo "Failed to create detached review worktree." >&2; exit 1; fi
+  if ! test "$(git -C "$STAGING_REPO" remote get-url review-base)" = "$BASE_URL" ||
+     ! test "$(git -C "$STAGING_REPO" remote get-url review-head)" = "$HEAD_URL" ||
+     ! test "$(git -C "$STAGING_REPO" rev-parse refs/remotes/review/base)" = "$BASE_SHA" ||
+     ! test "$(git -C "$STAGING_WORKTREE" rev-parse --path-format=absolute --git-common-dir)" = "$(git -C "$STAGING_REPO" rev-parse --path-format=absolute --git-dir)" ||
+     git -C "$STAGING_WORKTREE" symbolic-ref -q HEAD >/dev/null ||
+     ! test "$(git -C "$STAGING_WORKTREE" rev-parse HEAD)" = "$HEAD_SHA"; then
     echo "Integrity error: fresh review bundle failed final invariant verification." >&2; exit 1
   fi
+  if ! mv -T "$STAGING_DATA_DIR" "$REVIEW_DATA_DIR"; then echo "Failed to publish verified review bundle." >&2; exit 1; fi
+  trap - EXIT
+  echo "Created verified review bundle: $REVIEW_DATA_DIR"
 fi
 if ! git -C "$WORKTREE" diff --no-ext-diff "$BASE_SHA...$HEAD_SHA" --stat >"$REVIEW_DATA_DIR/stat.txt"; then echo "Failed to capture diff statistics." >&2; exit 1; fi
 if ! git -C "$WORKTREE" diff --no-ext-diff "$BASE_SHA...$HEAD_SHA" --name-status >"$REVIEW_DATA_DIR/files.txt"; then echo "Failed to capture changed-file list." >&2; exit 1; fi
