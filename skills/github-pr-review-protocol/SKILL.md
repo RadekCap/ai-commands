@@ -57,7 +57,7 @@ Do not continue unless `PR_STATE` is `OPEN` and `PR_IS_DRAFT=false`. To review a
 
 With no argument, detect the current branch's PR; if none exists, ask whether to provide a PR or cancel. A URL supplies its own owner/repository; a number uses the active repository. Read applicable repository instructions from the dedicated worktree before reviewing.
 
-Create a dedicated Git repository inside the bundle; do not fetch into the active checkout. This setup is restart-safe: reuse it only when its remotes, base ref, Git common directory, detached `HEAD`, and manifest SHAs all match. A partial or mismatched bundle is an integrity error; do not delete, overwrite, or repair it automatically.
+Create a dedicated Git repository inside the bundle; do not fetch into the active checkout. This setup is restart-safe: reuse it only when its remotes, pinned base commit, Git common directory, detached `HEAD`, and manifest SHAs all match. `BASE_REF` identifies the PR target branch in manifest metadata; it is not an integrity invariant because that branch may advance after the manifest was recorded. A partial or mismatched bundle is an integrity error; do not delete, overwrite, or repair it automatically.
 
 ```bash
 if ! BASE_URL=$(jq -er '.baseRepository.url | strings | select(length > 0)' "$MANIFEST") ||
@@ -81,7 +81,7 @@ else
   if ! git init -q "$REVIEW_REPO"; then echo "Failed to initialize review repository." >&2; exit 1; fi
   if ! git -C "$REVIEW_REPO" remote add review-base "$BASE_URL"; then echo "Failed to add base remote." >&2; exit 1; fi
   if ! git -C "$REVIEW_REPO" remote add review-head "$HEAD_URL"; then echo "Failed to add head remote." >&2; exit 1; fi
-  if ! git -C "$REVIEW_REPO" fetch --no-tags review-base "$BASE_REF:refs/remotes/review/base"; then echo "Failed to fetch base ref." >&2; exit 1; fi
+  if ! git -C "$REVIEW_REPO" fetch --no-tags review-base "$BASE_SHA:refs/remotes/review/base"; then echo "Failed to fetch manifest-pinned base SHA." >&2; exit 1; fi
   if ! test "$(git -C "$REVIEW_REPO" rev-parse refs/remotes/review/base)" = "$BASE_SHA"; then echo "Fetched base SHA does not match manifest." >&2; exit 1; fi
   if ! git -C "$REVIEW_REPO" fetch --no-tags review-head "$HEAD_SHA"; then echo "Failed to fetch head SHA." >&2; exit 1; fi
   if ! test "$(git -C "$REVIEW_REPO" rev-parse FETCH_HEAD)" = "$HEAD_SHA"; then echo "Fetched head SHA does not match manifest." >&2; exit 1; fi
