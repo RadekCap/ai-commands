@@ -15,12 +15,16 @@ Resolve the argument (URL, number, or current branch) to `OWNER`, `REPO`, and `P
 if ! PR=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json number,title,state,baseRefName,baseRefOid,baseRepository,headRefName,headRefOid,headRepository,headRepositoryOwner,files,additions,deletions,body); then
   echo "Failed to fetch PR manifest." >&2; exit 1
 fi
-if ! HEAD_SHA=$(jq -er '.headRefOid | strings | select(length > 0)' <<<"$PR") ||
+if ! PR_STATE=$(jq -er '.state | strings | select(length > 0)' <<<"$PR") ||
+   ! HEAD_SHA=$(jq -er '.headRefOid | strings | select(length > 0)' <<<"$PR") ||
    ! BASE_SHA=$(jq -er '.baseRefOid | strings | select(length > 0)' <<<"$PR"); then
-  echo "Invalid PR manifest: missing base or head SHA." >&2; exit 1
+  echo "Invalid PR manifest: missing state, base SHA, or head SHA." >&2; exit 1
+fi
+if [ "$PR_STATE" != OPEN ] && [ "${REVIEW_NON_OPEN_PR:-}" != 1 ]; then
+  echo "Refusing to review PR state $PR_STATE; explicit user authorization is required." >&2; exit 1
 fi
 REVIEW_DATA_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/pr-review/${OWNER}-${REPO}-${PR_NUMBER}-${BASE_SHA}-${HEAD_SHA}"
-install -d -m 700 "$REVIEW_DATA_DIR"
+if ! install -d -m 700 "$REVIEW_DATA_DIR"; then echo "Failed to create review-data directory." >&2; exit 1; fi
 MANIFEST="$REVIEW_DATA_DIR/manifest.json"
 if [ -e "$MANIFEST" ]; then
   jq -e --arg base "$BASE_SHA" --arg head "$HEAD_SHA" \
@@ -31,7 +35,7 @@ else
 fi
 ```
 
-Do not continue unless the PR is open, unless the user explicitly authorizes reviewing another state. Store raw API responses in this directory (`threads.json`, `comments.json`, `checks.json`) and derive compact summaries from them; do not paste raw JSON or a whole diff into chat.
+Do not continue unless `PR_STATE` is `OPEN`. To review a closed, merged, or draft PR, the user must explicitly authorize that exact exception in the request; only then set `REVIEW_NON_OPEN_PR=1` for that invocation and record the authorization and state in the review header. Never set this override by inference or for a later mutation. Store raw API responses in this directory and derive compact summaries from them; do not paste raw JSON or a whole diff into chat.
 
 With no argument, detect the current branch's PR; if none exists, ask whether to provide a PR or cancel. A URL supplies its own owner/repository; a number uses the active repository. Read applicable repository instructions from the dedicated worktree before reviewing.
 
@@ -56,17 +60,25 @@ if [ -e "$REVIEW_REPO" ] || [ -e "$WORKTREE" ]; then
       echo "Integrity error: existing review bundle is incomplete or does not match its manifest." >&2; exit 1; }
   echo "Reusing verified review bundle: $REVIEW_DATA_DIR"
 else
-  git init -q "$REVIEW_REPO"
-  git -C "$REVIEW_REPO" remote add review-base "$BASE_URL"
-  git -C "$REVIEW_REPO" remote add review-head "$HEAD_URL"
-  git -C "$REVIEW_REPO" fetch --no-tags review-base "$BASE_REF:refs/remotes/review/base"
-  test "$(git -C "$REVIEW_REPO" rev-parse refs/remotes/review/base)" = "$BASE_SHA"
-  git -C "$REVIEW_REPO" fetch --no-tags review-head "$HEAD_SHA"
-  test "$(git -C "$REVIEW_REPO" rev-parse FETCH_HEAD)" = "$HEAD_SHA"
-  git -C "$REVIEW_REPO" worktree add --detach "$WORKTREE" "$HEAD_SHA"
+  if ! git init -q "$REVIEW_REPO"; then echo "Failed to initialize review repository." >&2; exit 1; fi
+  if ! git -C "$REVIEW_REPO" remote add review-base "$BASE_URL"; then echo "Failed to add base remote." >&2; exit 1; fi
+  if ! git -C "$REVIEW_REPO" remote add review-head "$HEAD_URL"; then echo "Failed to add head remote." >&2; exit 1; fi
+  if ! git -C "$REVIEW_REPO" fetch --no-tags review-base "$BASE_REF:refs/remotes/review/base"; then echo "Failed to fetch base ref." >&2; exit 1; fi
+  if ! test "$(git -C "$REVIEW_REPO" rev-parse refs/remotes/review/base)" = "$BASE_SHA"; then echo "Fetched base SHA does not match manifest." >&2; exit 1; fi
+  if ! git -C "$REVIEW_REPO" fetch --no-tags review-head "$HEAD_SHA"; then echo "Failed to fetch head SHA." >&2; exit 1; fi
+  if ! test "$(git -C "$REVIEW_REPO" rev-parse FETCH_HEAD)" = "$HEAD_SHA"; then echo "Fetched head SHA does not match manifest." >&2; exit 1; fi
+  if ! git -C "$REVIEW_REPO" worktree add --detach "$WORKTREE" "$HEAD_SHA"; then echo "Failed to create detached review worktree." >&2; exit 1; fi
+  if ! test "$(git -C "$REVIEW_REPO" remote get-url review-base)" = "$BASE_URL" ||
+     ! test "$(git -C "$REVIEW_REPO" remote get-url review-head)" = "$HEAD_URL" ||
+     ! test "$(git -C "$REVIEW_REPO" rev-parse refs/remotes/review/base)" = "$BASE_SHA" ||
+     ! test "$(git -C "$WORKTREE" rev-parse --path-format=absolute --git-common-dir)" = "$(git -C "$REVIEW_REPO" rev-parse --path-format=absolute --git-dir)" ||
+     git -C "$WORKTREE" symbolic-ref -q HEAD >/dev/null ||
+     ! test "$(git -C "$WORKTREE" rev-parse HEAD)" = "$HEAD_SHA"; then
+    echo "Integrity error: fresh review bundle failed final invariant verification." >&2; exit 1
+  fi
 fi
-git -C "$WORKTREE" diff --no-ext-diff "$BASE_SHA...$HEAD_SHA" --stat >"$REVIEW_DATA_DIR/stat.txt"
-git -C "$WORKTREE" diff --no-ext-diff "$BASE_SHA...$HEAD_SHA" --name-status >"$REVIEW_DATA_DIR/files.txt"
+if ! git -C "$WORKTREE" diff --no-ext-diff "$BASE_SHA...$HEAD_SHA" --stat >"$REVIEW_DATA_DIR/stat.txt"; then echo "Failed to capture diff statistics." >&2; exit 1; fi
+if ! git -C "$WORKTREE" diff --no-ext-diff "$BASE_SHA...$HEAD_SHA" --name-status >"$REVIEW_DATA_DIR/files.txt"; then echo "Failed to capture changed-file list." >&2; exit 1; fi
 ```
 
 If the fetch or SHA verification fails, stop and report the exact blocker. Never silently review a similarly named local branch.
@@ -99,7 +111,7 @@ Save every API response before deriving an index. Never print a response body or
 
 ```bash
 THREAD_DIR="$REVIEW_DATA_DIR/threads"; COMMENT_DIR="$REVIEW_DATA_DIR/comments"
-install -d -m 700 "$THREAD_DIR" "$COMMENT_DIR"
+if ! install -d -m 700 "$THREAD_DIR" "$COMMENT_DIR"; then echo "Failed to create reviewer-data directories." >&2; exit 1; fi
 INDEX="$REVIEW_DATA_DIR/findings.ndjson"; COMPLETE="$THREAD_DIR/complete"
 if [ -e "$INDEX" ] || [ -e "$THREAD_DIR/page-0001.json" ]; then
   test -f "$COMPLETE" && test -f "$INDEX" || {
@@ -116,8 +128,11 @@ else
     if ! RESPONSE=$(gh api graphql -f query='query($owner:String!,$repo:String!,$pr:Int!,$after:String){repository(owner:$owner,name:$repo){pullRequest(number:$pr){reviewThreads(first:100,after:$after){nodes{id isResolved comments(first:1){nodes{id databaseId body author{login} path line startLine}}} pageInfo{hasNextPage endCursor}}}}}}' "${ARGS[@]}"); then
       echo "Failed to fetch review-thread page $PAGE." >&2; exit 1
     fi
-    if ! PAGE_INFO=$(jq -cer '.data.repository.pullRequest.reviewThreads as $threads | select(($threads.nodes | type) == "array") | $threads.pageInfo | select(type == "object" and (.hasNextPage | type) == "boolean") | if .hasNextPage then select((.endCursor | type) == "string" and (.endCursor | length) > 0) else . end | {hasNextPage,endCursor}' <<<"$RESPONSE") ||
-       ! INDEX_RECORDS=$(jq -c '.data.repository.pullRequest.reviewThreads.nodes[]? | .comments.nodes[0] as $c | select($c != null and ($c.body | type) == "string") | {threadId:.id,resolved:.isResolved,commentId:$c.databaseId,author:$c.author.login,path:$c.path,line:$c.line,startLine:($c.startLine // $c.line),body:($c.body[0:600]),bodyLength:($c.body | length),bodyTruncated:(($c.body | length) > 600)}' <<<"$RESPONSE"); then
+    if ! PAGE_INFO=$(jq -cer '
+      def no_errors: (has("errors") | not) or (.errors | type == "array" and length == 0);
+      def root_comment: type == "object" and (.id | type == "string" and length > 0) and (.databaseId | type == "number") and (.body | type == "string") and (.author | type == "object" and (.login | type == "string" and length > 0)) and (.path | type == "string") and ((.line == null) or (.line | type == "number")) and ((.startLine == null) or (.startLine | type == "number"));
+      if no_errors and (.data.repository.pullRequest.reviewThreads as $threads | ($threads.nodes | type == "array") and (all($threads.nodes[]; type == "object" and (.id | type == "string" and length > 0) and (.isResolved | type == "boolean") and (.comments | type == "object") and (.comments.nodes | type == "array" and length == 1 and (.comments.nodes[0] | root_comment)))) and ($threads.pageInfo | type == "object" and (.hasNextPage | type == "boolean") and (if .hasNextPage then (.endCursor | type == "string" and length > 0) else true end))) then .data.repository.pullRequest.reviewThreads.pageInfo | {hasNextPage,endCursor} else error("invalid review-thread response") end' <<<"$RESPONSE") ||
+       ! INDEX_RECORDS=$(jq -c '.data.repository.pullRequest.reviewThreads.nodes[]? | .comments.nodes[0] as $c | {threadId:.id,resolved:.isResolved,commentId:$c.databaseId,author:$c.author.login,path:$c.path,line:$c.line,startLine:($c.startLine // $c.line),body:($c.body[0:600]),bodyLength:($c.body | length),bodyTruncated:(($c.body | length) > 600)}' <<<"$RESPONSE"); then
       echo "Invalid review-thread response on page $PAGE." >&2; exit 1
     fi
     PAGE_FILE=$(printf '%s/page-%04d.json' "$THREAD_DIR" "$PAGE")
@@ -127,7 +142,7 @@ else
     [ "$HAS_NEXT" = true ] || break
     CURSOR=$(jq -er '.endCursor | strings | select(length > 0)' <<<"$PAGE_INFO") || { echo "Missing thread cursor." >&2; exit 1; }
   done
-  touch "$COMPLETE"
+  touch "$COMPLETE" || { echo "Failed to mark thread collection complete." >&2; exit 1; }
 fi
 ```
 
@@ -151,7 +166,7 @@ while IFS= read -r THREAD_ID; do
     if ! COMMENT_RESPONSE=$(gh api graphql -f query='query($threadId:ID!,$after:String){node(id:$threadId){... on PullRequestReviewThread{comments(first:100,after:$after){nodes{id databaseId body author{login} path line startLine} pageInfo{hasNextPage endCursor}}}}}' "${COMMENT_ARGS[@]}"); then
       echo "Failed to fetch comment page $COMMENT_PAGE for thread $THREAD_N." >&2; exit 1
     fi
-    if ! COMMENT_PAGE_INFO=$(jq -cer '.data.node.comments as $comments | select(($comments.nodes | type) == "array") | $comments.pageInfo | select(type == "object" and (.hasNextPage | type) == "boolean") | if .hasNextPage then select((.endCursor | type) == "string" and (.endCursor | length) > 0) else . end | {hasNextPage,endCursor}' <<<"$COMMENT_RESPONSE"); then
+    if ! COMMENT_PAGE_INFO=$(jq -cer 'def no_errors: (has("errors") | not) or (.errors | type == "array" and length == 0); def comment: type == "object" and (.id | type == "string" and length > 0) and (.databaseId | type == "number") and (.body | type == "string") and (.author | type == "object" and (.login | type == "string" and length > 0)) and (.path | type == "string") and ((.line == null) or (.line | type == "number")) and ((.startLine == null) or (.startLine | type == "number")); if no_errors and (.data.node.comments as $comments | ($comments.nodes | type == "array") and (all($comments.nodes[]; comment)) and ($comments.pageInfo | type == "object" and (.hasNextPage | type == "boolean") and (if .hasNextPage then (.endCursor | type == "string" and length > 0) else true end))) then .data.node.comments.pageInfo | {hasNextPage,endCursor} else error("invalid comment response") end' <<<"$COMMENT_RESPONSE"); then
       echo "Invalid comment response for thread $THREAD_N page $COMMENT_PAGE." >&2; exit 1
     fi
     COMMENT_FILE=$(printf '%s/comment-%04d-page-%04d.json' "$COMMENT_DIR" "$THREAD_N" "$COMMENT_PAGE")
@@ -160,17 +175,62 @@ while IFS= read -r THREAD_ID; do
     [ "$COMMENT_HAS_NEXT" = true ] || break
     COMMENT_CURSOR=$(jq -er '.endCursor | strings | select(length > 0)' <<<"$COMMENT_PAGE_INFO") || { echo "Missing comment cursor." >&2; exit 1; }
   done
-  touch "$COMMENT_COMPLETE"
+  touch "$COMMENT_COMPLETE" || { echo "Failed to mark comment collection complete." >&2; exit 1; }
 done < <(jq -r '.threadId' "$INDEX")
 ```
 
-Do not expose comment bodies to the model. The model receives only one index record (body capped at 600 characters), its `bodyLength` and `bodyTruncated` flags, reviewer/source label, and the targeted code excerpt from section 3. A `bodyTruncated: true` finding is evidence-incomplete: do not accept, deny, reply, resolve, commit, push, or otherwise mutate it. First create a bounded decision summary from the locally stored full comment that captures the complete claim, evidence, requested action, and scope; if that cannot be done without bulk output, report the thread as evidence-incomplete and leave it untouched. Fetch issue comments, checks, and bot summaries into `comments.json` or `checks.json` with the same capture-then-summarize rule.
+Capture Qodo's issue comments and commit checks before deciding whether Qodo is clean. These endpoints are bounded and fail closed: each response is schema-validated and persisted before the terminal decision; an API error, malformed record, or page cap leaves no completion marker. Do not treat an absent Qodo result as clean unless both collections have their completion markers.
+
+```bash
+QODO_COMMENT_DIR="$REVIEW_DATA_DIR/qodo-issue-comments"; QODO_CHECK_DIR="$REVIEW_DATA_DIR/qodo-checks"
+if ! install -d -m 700 "$QODO_COMMENT_DIR" "$QODO_CHECK_DIR"; then echo "Failed to create Qodo-data directories." >&2; exit 1; fi
+QODO_COMMENT_COMPLETE="$QODO_COMMENT_DIR/complete"; QODO_CHECK_COMPLETE="$QODO_CHECK_DIR/complete"
+if [ -e "$QODO_COMMENT_DIR/page-0001.json" ]; then
+  test -f "$QODO_COMMENT_COMPLETE" || { echo "Integrity error: incomplete Qodo issue-comment collection." >&2; exit 1; }
+else
+  QODO_PAGE=0; MAX_QODO_COMMENT_PAGES=100
+  while :; do
+    QODO_PAGE=$((QODO_PAGE + 1)); [ "$QODO_PAGE" -le "$MAX_QODO_COMMENT_PAGES" ] || { echo "Incomplete collection: Qodo issue-comment page limit reached." >&2; exit 1; }
+    if ! QODO_RESPONSE=$(gh api "repos/$GH_REPO/issues/$PR_NUMBER/comments?per_page=100&page=$QODO_PAGE"); then echo "Failed to fetch Qodo issue-comment page $QODO_PAGE." >&2; exit 1; fi
+    if ! jq -e 'type == "array" and all(.[]; type == "object" and (.id | type == "number") and (.body | type == "string") and (.user | type == "object" and (.login | type == "string" and length > 0)) and (.html_url | type == "string" and length > 0))' <<<"$QODO_RESPONSE" >/dev/null; then echo "Invalid Qodo issue-comment response on page $QODO_PAGE." >&2; exit 1; fi
+    QODO_FILE=$(printf '%s/page-%04d.json' "$QODO_COMMENT_DIR" "$QODO_PAGE")
+    printf '%s\n' "$QODO_RESPONSE" >"$QODO_FILE" || { echo "Failed to save Qodo issue-comment page." >&2; exit 1; }
+    [ "$(jq -er 'length' <<<"$QODO_RESPONSE")" -lt 100 ] || continue
+    break
+  done
+  touch "$QODO_COMMENT_COMPLETE" || { echo "Failed to mark Qodo issue-comment collection complete." >&2; exit 1; }
+fi
+if [ -e "$QODO_CHECK_DIR/page-0001.json" ]; then
+  test -f "$QODO_CHECK_COMPLETE" || { echo "Integrity error: incomplete Qodo checks collection." >&2; exit 1; }
+else
+  QODO_PAGE=0; MAX_QODO_CHECK_PAGES=100
+  while :; do
+    QODO_PAGE=$((QODO_PAGE + 1)); [ "$QODO_PAGE" -le "$MAX_QODO_CHECK_PAGES" ] || { echo "Incomplete collection: Qodo checks page limit reached." >&2; exit 1; }
+    if ! QODO_RESPONSE=$(gh api "repos/$GH_REPO/commits/$HEAD_SHA/check-runs?per_page=100&page=$QODO_PAGE"); then echo "Failed to fetch Qodo checks page $QODO_PAGE." >&2; exit 1; fi
+    if ! jq -e 'type == "object" and (.total_count | type == "number" and . >= 0) and (.check_runs | type == "array") and all(.check_runs[]; type == "object" and (.id | type == "number") and (.name | type == "string" and length > 0) and (.status | type == "string" and length > 0) and ((.conclusion == null) or (.conclusion | type == "string")) and (.html_url | type == "string" and length > 0))' <<<"$QODO_RESPONSE" >/dev/null; then echo "Invalid Qodo checks response on page $QODO_PAGE." >&2; exit 1; fi
+    QODO_FILE=$(printf '%s/page-%04d.json' "$QODO_CHECK_DIR" "$QODO_PAGE")
+    printf '%s\n' "$QODO_RESPONSE" >"$QODO_FILE" || { echo "Failed to save Qodo checks page." >&2; exit 1; }
+    QODO_TOTAL=$(jq -er '.total_count' <<<"$QODO_RESPONSE") || { echo "Invalid Qodo checks total." >&2; exit 1; }
+    [ $((QODO_PAGE * 100)) -lt "$QODO_TOTAL" ] || break
+  done
+  touch "$QODO_CHECK_COMPLETE" || { echo "Failed to mark Qodo checks collection complete." >&2; exit 1; }
+fi
+if ! QODO_NONTERMINAL_CHECKS=$(jq -r 'select(.check_runs != null) | .check_runs[] | select((.name | ascii_downcase | contains("qodo")) and .status != "completed") | .html_url' "$QODO_CHECK_DIR"/page-*.json); then echo "Failed to classify Qodo check status." >&2; exit 1; fi
+if [ -n "$QODO_NONTERMINAL_CHECKS" ]; then
+  QODO_CHECKS_TERMINAL=false
+  echo "Qodo check is not terminal; do not report a clean Qodo result." >&2
+else
+  QODO_CHECKS_TERMINAL=true
+fi
+```
+
+Do not expose comment bodies to the model. The model receives only one index record (body capped at 600 characters), its `bodyLength` and `bodyTruncated` flags, reviewer/source label, and the targeted code excerpt from section 3. A `bodyTruncated: true` finding is evidence-incomplete: do not accept, deny, reply, resolve, commit, push, or otherwise mutate it. First create a bounded decision summary from the locally stored full comment that captures the complete claim, evidence, requested action, and scope; if that cannot be done without bulk output, report the thread as evidence-incomplete and leave it untouched. Derive Qodo's compact summary only from completed Qodo capture directories.
 
 ## 5. Reviewer-thread transaction
 
 Filter unresolved, evidence-complete root comments by reviewer from `findings.ndjson`. For every finding: inspect its capped metadata and targeted excerpt; accept, deny, or mark duplicate; reply directly to the original comment when possible; resolve the GraphQL thread when that reviewer supports it; verify the mutation result. If accepted, test, make one focused commit, and push before replying. If a reply or resolution fails, record it and continue; do not claim it succeeded.
 
-For CodeRabbit, poll its summary every 30 seconds for up to 30 attempts, then wait until the inline-thread count is unchanged for two 10-second checks. A timeout is a warning, not a clean result. Treat walkthrough and summary comments as non-findings. Qodo may publish only a summary; when its Bugs, Rule violations, and Requirement gaps are all zero, record a clean Qodo result.
+For CodeRabbit, poll its summary every 30 seconds for up to 30 attempts, then wait until the inline-thread count is unchanged for two 10-second checks. A timeout is a warning, not a clean result. Treat walkthrough and summary comments as non-findings. Qodo may publish only a summary; after both Qodo captures complete and `QODO_CHECKS_TERMINAL=true`, when its Bugs, Rule violations, and Requirement gaps are all zero, record a clean Qodo result. A capture error, incomplete collection, or Qodo check still in a non-terminal status is a warning, never a clean result.
 
 Use concise replies: `Implemented in <short-sha>: <change and why>.` or `Not implementing: <specific reason>.` A duplicate reply names the commit that addressed it. Never auto-fix or rerun a review-only skill unless the user asks.
 

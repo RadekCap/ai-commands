@@ -6,12 +6,91 @@ test_root=$(mktemp -d)
 trap 'rm -rf "$test_root"' EXIT
 
 page_info() {
-  jq -cer '.data.repository.pullRequest.reviewThreads as $threads | select(($threads.nodes | type) == "array") | $threads.pageInfo | select(type == "object" and (.hasNextPage | type) == "boolean") | if .hasNextPage then select((.endCursor | type) == "string" and (.endCursor | length) > 0) else . end | {hasNextPage,endCursor}'
+  jq -cer '
+    def no_errors: (has("errors") | not) or (.errors | type == "array" and length == 0);
+    def root_comment:
+      type == "object" and (.id | type == "string" and length > 0) and
+      (.databaseId | type == "number") and (.body | type == "string") and
+      (.author | type == "object" and (.login | type == "string" and length > 0)) and
+      (.path | type == "string") and
+      ((.line == null) or (.line | type == "number")) and
+      ((.startLine == null) or (.startLine | type == "number"));
+    if no_errors and
+    (.data.repository.pullRequest.reviewThreads as $threads |
+      ($threads.nodes | type == "array") and
+      (all($threads.nodes[]; type == "object" and (.id | type == "string" and length > 0) and
+        (.isResolved | type == "boolean") and (.comments | type == "object") and
+        (.comments.nodes | type == "array" and length == 1 and (.comments.nodes[0] | root_comment)))) and
+      ($threads.pageInfo | type == "object" and (.hasNextPage | type == "boolean") and
+        (if .hasNextPage then (.endCursor | type == "string" and length > 0) else true end)))
+    then .data.repository.pullRequest.reviewThreads.pageInfo | {hasNextPage,endCursor}
+    else error("invalid review-thread response") end'
+}
+
+pr_is_reviewable() {
+  local state=$1 override=${2:-}
+  [ "$state" = OPEN ] || [ "$override" = 1 ]
+}
+
+validate_qodo_comment_page() {
+  jq -e 'type == "array" and all(.[]; type == "object" and (.id | type == "number") and (.body | type == "string") and (.user | type == "object" and (.login | type == "string" and length > 0)) and (.html_url | type == "string" and length > 0))' >/dev/null
+}
+
+validate_qodo_checks_page() {
+  jq -e 'type == "object" and (.total_count | type == "number" and . >= 0) and (.check_runs | type == "array") and all(.check_runs[]; type == "object" and (.id | type == "number") and (.name | type == "string" and length > 0) and (.status | type == "string" and length > 0) and ((.conclusion == null) or (.conclusion | type == "string")) and (.html_url | type == "string" and length > 0))' >/dev/null
+}
+
+qodo_comment_page_is_terminal() {
+  jq -er 'length < 100' >/dev/null
+}
+
+qodo_checks_page_is_terminal() {
+  local page=$1
+  jq -er --argjson page "$page" '($page * 100) >= .total_count' >/dev/null
+}
+
+qodo_page_is_within_limit() {
+  local page=$1 limit=$2
+  [ "$page" -le "$limit" ]
+}
+
+qodo_checks_are_terminal() {
+  jq -e 'all(.check_runs[]; ((.name | ascii_downcase | contains("qodo")) | not) or .status == "completed")' >/dev/null
+}
+
+index_records() {
+  jq -c '.data.repository.pullRequest.reviewThreads.nodes[]? | .comments.nodes[0] as $c | {threadId:.id,commentId:$c.databaseId}'
 }
 
 if page_info <<<'{}' >/dev/null 2>&1; then fail "malformed GraphQL response was accepted"; fi
+if page_info <<<'{"errors":[{"message":"partial failure"}],"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}' >/dev/null 2>&1; then fail "GraphQL top-level errors were accepted"; fi
 if page_info <<<'{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":null}}}}}}' >/dev/null 2>&1; then fail "missing continuation cursor was accepted"; fi
 page_info <<<'{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}' | jq -e '.hasNextPage == false' >/dev/null || fail "terminal page was rejected"
+empty_records=$(index_records <<<'{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}')
+[ -z "$empty_records" ] || fail "empty review-thread page produced unexpected index records"
+if page_info <<<'{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"id":"thread","isResolved":false,"comments":{"nodes":[]}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}' >/dev/null 2>&1; then fail "partial root-comment node was accepted"; fi
+
+pr_is_reviewable OPEN || fail "open PR was rejected"
+if pr_is_reviewable CLOSED; then fail "closed PR was accepted without authorization"; fi
+if pr_is_reviewable MERGED; then fail "merged PR was accepted without authorization"; fi
+pr_is_reviewable CLOSED 1 || fail "explicit non-open authorization was rejected"
+
+validate_qodo_comment_page <<<'[]' || fail "empty Qodo comment terminal page was rejected"
+qodo_comment_page_is_terminal <<<'[]' || fail "empty Qodo comment page did not terminate capture"
+validate_qodo_comment_page <<<'[{"id":1,"body":"finding","user":{"login":"qodo"},"html_url":"https://example.invalid/comment/1"}]' || fail "valid Qodo comment page was rejected"
+hundred_comments=$(jq -cn '[range(0; 100) | {id: ., body: "finding", user: {login: "qodo"}, html_url: "https://example.invalid/comment"}]')
+if qodo_comment_page_is_terminal <<<"$hundred_comments"; then fail "full Qodo comment page terminated multi-page capture"; fi
+qodo_page_is_within_limit 100 100 || fail "last permitted Qodo page was rejected"
+if qodo_page_is_within_limit 101 100; then fail "Qodo page cap was not enforced"; fi
+if validate_qodo_comment_page <<<'[{"id":1,"body":"finding","user":null,"html_url":"https://example.invalid/comment/1"}]'; then fail "malformed Qodo comment page was accepted"; fi
+if validate_qodo_comment_page <<<'{"message":"API rate limit exceeded"}'; then fail "Qodo issue-comment API error was accepted"; fi
+validate_qodo_checks_page <<<'{"total_count":101,"check_runs":[{"id":1,"name":"Qodo","status":"completed","conclusion":"success","html_url":"https://example.invalid/check/1"}]}' || fail "valid Qodo checks page was rejected"
+if qodo_checks_page_is_terminal 1 <<<'{"total_count":101,"check_runs":[]}'; then fail "first Qodo checks page terminated multi-page capture"; fi
+qodo_checks_page_is_terminal 2 <<<'{"total_count":101,"check_runs":[]}' || fail "last Qodo checks page did not terminate capture"
+qodo_checks_are_terminal <<<'{"check_runs":[{"name":"Qodo","status":"completed"}]}' || fail "terminal Qodo check was rejected"
+if qodo_checks_are_terminal <<<'{"check_runs":[{"name":"Qodo","status":"in_progress"}]}'; then fail "non-terminal Qodo check was accepted as clean"; fi
+if validate_qodo_checks_page <<<'{"total_count":1,"check_runs":[{"id":1,"name":"Qodo","status":null,"conclusion":"success","html_url":"https://example.invalid/check/1"}]}'; then fail "malformed Qodo checks page was accepted"; fi
+if validate_qodo_checks_page <<<'{"message":"API rate limit exceeded"}'; then fail "Qodo checks API error was accepted"; fi
 
 long_body=$(printf '%0601d' 0)
 record=$(jq -cn --arg body "$long_body" '{body:($body[0:600]),bodyLength:($body|length),bodyTruncated:(($body|length)>600)}')
@@ -52,4 +131,4 @@ verify_reuse || fail "matching worktree was not reusable"
 git -C "$worktree" reset --hard "$base_sha" >/dev/null
 if verify_reuse; then fail "mismatched worktree was reusable"; fi
 
-echo "PASS: malformed/cursor, truncation, empty-index, and restart checks"
+echo "PASS: state, malformed/cursor, Qodo pagination schemas, truncation, empty-index, and restart checks"
