@@ -115,6 +115,11 @@ if pr_is_reviewable OPEN true; then fail "draft PR was accepted without authoriz
 pr_is_reviewable CLOSED false 1 || fail "explicit non-open authorization was rejected"
 pr_is_reviewable OPEN true 1 || fail "explicit draft authorization was rejected"
 
+manifest_draft_filter='if (.isDraft | type) == "boolean" then .isDraft | tostring else empty end'
+test "$(jq -er "$manifest_draft_filter" <<<'{"isDraft":false}')" = false || fail "non-draft manifest status was not emitted as false"
+test "$(jq -er "$manifest_draft_filter" <<<'{"isDraft":true}')" = true || fail "draft manifest status was not emitted as true"
+if jq -er "$manifest_draft_filter" <<<'{"isDraft":null}' >/dev/null 2>&1; then fail "non-boolean manifest draft status was accepted"; fi
+
 legacy_pr='{"number":7,"baseRefName":"main","baseRefOid":"base-sha","headRefName":"feature","headRefOid":"head-sha","headRepository":{"url":"https://github.com/Fork/Repo"},"headRepositoryOwner":{"login":"Fork"}}'
 base_pull='{"number":7,"base":{"ref":"main","sha":"base-sha","repo":{"full_name":"Owner/Repo","html_url":"https://github.com/Owner/Repo"}},"head":{"label":"Fork:feature","ref":"feature","sha":"head-sha","repo":{"full_name":"Fork/Repo","clone_url":"https://github.com/Fork/Repo.git","owner":{"login":"Fork"}}}}'
 manifest_from_cli_and_api "$legacy_pr" "$base_pull" owner/repo 7 base-sha head-sha | jq -e '.baseRepository.url == "https://github.com/Owner/Repo"' >/dev/null || fail "legacy gh manifest could not be enriched with base repository"
@@ -179,6 +184,7 @@ if capture_manifest_valid "$bound_collection" page threads:test "$bound_index"; 
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 protocol="$repo_root/skills/github-pr-review-protocol/SKILL.md"
+rg -Fq "$manifest_draft_filter" "$protocol" || fail "protocol does not safely extract boolean draft status"
 if rg -q -- '--json.*baseRepository' "$protocol"; then
   fail "protocol depends on unsupported gh baseRepository JSON field"
 fi
