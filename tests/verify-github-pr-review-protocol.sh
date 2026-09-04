@@ -40,8 +40,12 @@ manifest_from_cli_and_api() {
          (.base | type == "object" and .ref == $manifest.baseRefName and .sha == $base and
           (.repo | type == "object" and (.full_name | ascii_downcase) == ($repo | ascii_downcase) and (.html_url | type == "string" and length > 0))) and
          (.head | type == "object" and .ref == $manifest.headRefName and .sha == $head and
-          (.repo | type == "object" and .html_url == $manifest.headRepository.url))))
-    then $manifest + {baseRepository:{url:$base_pr.base.repo.html_url}} else error("base pull-request response does not match PR manifest") end' <<<"$pr"
+          (.label == ($manifest.headRepositoryOwner.login + ":" + $manifest.headRefName)) and
+          (.repo | type == "object" and
+            (.full_name as $full_name | ($full_name | type == "string" and length > 0 and (split("/") | length == 2) and (split("/")[0] | ascii_downcase == ($manifest.headRepositoryOwner.login | ascii_downcase)))) and
+            (.owner | type == "object" and (.login | type == "string" and ascii_downcase == ($manifest.headRepositoryOwner.login | ascii_downcase))) and
+            ((.clone_url // .ssh_url) | type == "string" and length > 0)))))
+    then $manifest + {baseRepository:{url:$base_pr.base.repo.html_url},headRepository:($manifest.headRepository + {url:($base_pr.head.repo.clone_url // $base_pr.head.repo.ssh_url),fullName:$base_pr.head.repo.full_name})} else error("base pull-request response does not match PR manifest") end' <<<"$pr"
 }
 
 validate_qodo_comment_page() {
@@ -111,10 +115,18 @@ if pr_is_reviewable OPEN true; then fail "draft PR was accepted without authoriz
 pr_is_reviewable CLOSED false 1 || fail "explicit non-open authorization was rejected"
 pr_is_reviewable OPEN true 1 || fail "explicit draft authorization was rejected"
 
-legacy_pr='{"number":7,"baseRefName":"main","baseRefOid":"base-sha","headRefName":"feature","headRefOid":"head-sha","headRepository":{"url":"https://github.com/Fork/Repo"}}'
-base_pull='{"number":7,"base":{"ref":"main","sha":"base-sha","repo":{"full_name":"Owner/Repo","html_url":"https://github.com/Owner/Repo"}},"head":{"ref":"feature","sha":"head-sha","repo":{"html_url":"https://github.com/Fork/Repo"}}}'
+legacy_pr='{"number":7,"baseRefName":"main","baseRefOid":"base-sha","headRefName":"feature","headRefOid":"head-sha","headRepository":{"url":"https://github.com/Fork/Repo"},"headRepositoryOwner":{"login":"Fork"}}'
+base_pull='{"number":7,"base":{"ref":"main","sha":"base-sha","repo":{"full_name":"Owner/Repo","html_url":"https://github.com/Owner/Repo"}},"head":{"label":"Fork:feature","ref":"feature","sha":"head-sha","repo":{"full_name":"Fork/Repo","clone_url":"https://github.com/Fork/Repo.git","owner":{"login":"Fork"}}}}'
 manifest_from_cli_and_api "$legacy_pr" "$base_pull" owner/repo 7 base-sha head-sha | jq -e '.baseRepository.url == "https://github.com/Owner/Repo"' >/dev/null || fail "legacy gh manifest could not be enriched with base repository"
 if manifest_from_cli_and_api "$legacy_pr" "${base_pull/base-sha/other-sha}" owner/repo 7 base-sha head-sha >/dev/null 2>&1; then fail "inconsistent base REST response was accepted"; fi
+
+# gh pr view may return a fork repository object with a null URL.  The REST pull
+# response remains authoritative for the clone URL and fork repository identity.
+null_url_pr='{"number":7,"baseRefName":"main","baseRefOid":"base-sha","headRefName":"feature","headRefOid":"head-sha","headRepository":{"url":null},"headRepositoryOwner":{"login":"Fork"}}'
+fork_pull='{"number":7,"base":{"ref":"main","sha":"base-sha","repo":{"full_name":"Owner/Repo","html_url":"https://github.com/Owner/Repo"}},"head":{"label":"Fork:feature","ref":"feature","sha":"head-sha","repo":{"full_name":"Fork/Repo","clone_url":"https://github.com/Fork/Repo.git","owner":{"login":"Fork"}}}}'
+manifest_from_cli_and_api "$null_url_pr" "$fork_pull" owner/repo 7 base-sha head-sha | jq -e '.headRepository.url == "https://github.com/Fork/Repo.git" and .headRepository.fullName == "Fork/Repo"' >/dev/null || fail "null gh fork URL could not be enriched from the REST pull response"
+if manifest_from_cli_and_api "$null_url_pr" "${fork_pull/Fork:feature/Other:feature}" owner/repo 7 base-sha head-sha >/dev/null 2>&1; then fail "inconsistent fork owner label was accepted"; fi
+if manifest_from_cli_and_api "$null_url_pr" "${fork_pull/Fork\/Repo/Other\/Repo}" owner/repo 7 base-sha head-sha >/dev/null 2>&1; then fail "inconsistent fork full name was accepted"; fi
 
 validate_qodo_comment_page <<<'[]' || fail "empty Qodo comment terminal page was rejected"
 qodo_comment_page_is_terminal <<<'[]' || fail "empty Qodo comment page did not terminate capture"
@@ -170,7 +182,11 @@ protocol="$repo_root/skills/github-pr-review-protocol/SKILL.md"
 if rg -q -- '--json.*baseRepository' "$protocol"; then
   fail "protocol depends on unsupported gh baseRepository JSON field"
 fi
+if rg -q '\.html_url == \$manifest\.headRepository\.url' "$protocol"; then
+  fail "protocol requires the nullable gh headRepository URL"
+fi
 rg -q 'gh api "repos/\$GH_REPO/pulls/\$PR_NUMBER"' "$protocol" || fail "protocol does not fetch base repository through the stable pull-request endpoint"
+rg -q '\.clone_url // \.ssh_url' "$protocol" || fail "protocol does not derive the head remote from the REST pull response"
 for link in review.md review-bugbot.md review-security.md; do
   test -L "$repo_root/$link" || fail "missing legacy compatibility symlink: $link"
 done

@@ -30,8 +30,12 @@ if ! PR=$(jq -ce --arg repo "$GH_REPO" --argjson number "$PR_NUMBER" --arg base 
        (.base | type == "object" and .ref == $manifest.baseRefName and .sha == $base and
         (.repo | type == "object" and (.full_name | ascii_downcase) == ($repo | ascii_downcase) and (.html_url | type == "string" and length > 0))) and
        (.head | type == "object" and .ref == $manifest.headRefName and .sha == $head and
-        (.repo | type == "object" and .html_url == $manifest.headRepository.url))))
-  then $manifest + {baseRepository:{url:$base_pr.base.repo.html_url}} else error("base pull-request response does not match PR manifest") end' <<<"$PR"); then
+        (.label == ($manifest.headRepositoryOwner.login + ":" + $manifest.headRefName)) and
+        (.repo | type == "object" and
+          (.full_name as $full_name | ($full_name | type == "string" and length > 0 and (split("/") | length == 2) and (split("/")[0] | ascii_downcase == ($manifest.headRepositoryOwner.login | ascii_downcase)))) and
+          (.owner | type == "object" and (.login | type == "string" and ascii_downcase == ($manifest.headRepositoryOwner.login | ascii_downcase))) and
+          ((.clone_url // .ssh_url) | type == "string" and length > 0)))))
+  then $manifest + {baseRepository:{url:$base_pr.base.repo.html_url},headRepository:($manifest.headRepository + {url:($base_pr.head.repo.clone_url // $base_pr.head.repo.ssh_url),fullName:$base_pr.head.repo.full_name})} else error("base pull-request response does not match PR manifest") end' <<<"$PR"); then
   echo "Invalid or inconsistent base pull-request response." >&2; exit 1
 fi
 if { [ "$PR_STATE" != OPEN ] || [ "$PR_IS_DRAFT" = true ]; } && [ "${REVIEW_NON_OPEN_PR:-}" != 1 ]; then
