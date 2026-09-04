@@ -32,6 +32,18 @@ pr_is_reviewable() {
   { [ "$state" = OPEN ] && [ "$draft" = false ]; } || [ "$override" = 1 ]
 }
 
+manifest_from_cli_and_api() {
+  local pr=$1 base_pr=$2 repo=$3 number=$4 base=$5 head=$6
+  jq -ce --arg repo "$repo" --argjson number "$number" --arg base "$base" --arg head "$head" --argjson base_pr "$base_pr" '
+    . as $manifest | if ($manifest.number == $number and $manifest.baseRefOid == $base and $manifest.headRefOid == $head and
+        ($base_pr | type == "object" and .number == $number and
+         (.base | type == "object" and .ref == $manifest.baseRefName and .sha == $base and
+          (.repo | type == "object" and (.full_name | ascii_downcase) == ($repo | ascii_downcase) and (.html_url | type == "string" and length > 0))) and
+         (.head | type == "object" and .ref == $manifest.headRefName and .sha == $head and
+          (.repo | type == "object" and .html_url == $manifest.headRepository.url))))
+    then $manifest + {baseRepository:{url:$base_pr.base.repo.html_url}} else error("base pull-request response does not match PR manifest") end' <<<"$pr"
+}
+
 validate_qodo_comment_page() {
   jq -e 'type == "array" and all(.[]; type == "object" and (.id | type == "number") and (.body | type == "string") and (.user | type == "object" and (.login | type == "string" and length > 0)) and (.html_url | type == "string" and length > 0))' >/dev/null
 }
@@ -99,6 +111,11 @@ if pr_is_reviewable OPEN true; then fail "draft PR was accepted without authoriz
 pr_is_reviewable CLOSED false 1 || fail "explicit non-open authorization was rejected"
 pr_is_reviewable OPEN true 1 || fail "explicit draft authorization was rejected"
 
+legacy_pr='{"number":7,"baseRefName":"main","baseRefOid":"base-sha","headRefName":"feature","headRefOid":"head-sha","headRepository":{"url":"https://github.com/Fork/Repo"}}'
+base_pull='{"number":7,"base":{"ref":"main","sha":"base-sha","repo":{"full_name":"Owner/Repo","html_url":"https://github.com/Owner/Repo"}},"head":{"ref":"feature","sha":"head-sha","repo":{"html_url":"https://github.com/Fork/Repo"}}}'
+manifest_from_cli_and_api "$legacy_pr" "$base_pull" owner/repo 7 base-sha head-sha | jq -e '.baseRepository.url == "https://github.com/Owner/Repo"' >/dev/null || fail "legacy gh manifest could not be enriched with base repository"
+if manifest_from_cli_and_api "$legacy_pr" "${base_pull/base-sha/other-sha}" owner/repo 7 base-sha head-sha >/dev/null 2>&1; then fail "inconsistent base REST response was accepted"; fi
+
 validate_qodo_comment_page <<<'[]' || fail "empty Qodo comment terminal page was rejected"
 qodo_comment_page_is_terminal <<<'[]' || fail "empty Qodo comment page did not terminate capture"
 validate_qodo_comment_page <<<'[{"id":1,"body":"finding","user":{"login":"qodo"},"html_url":"https://example.invalid/comment/1"}]' || fail "valid Qodo comment page was rejected"
@@ -149,6 +166,11 @@ if findings_index_valid "$bound_index"; then fail "malformed completed findings 
 if capture_manifest_valid "$bound_collection" page threads:test "$bound_index"; then fail "findings index mismatch with raw-page manifest was accepted"; fi
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
+protocol="$repo_root/skills/github-pr-review-protocol/SKILL.md"
+if rg -q -- '--json.*baseRepository' "$protocol"; then
+  fail "protocol depends on unsupported gh baseRepository JSON field"
+fi
+rg -q 'gh api "repos/\$GH_REPO/pulls/\$PR_NUMBER"' "$protocol" || fail "protocol does not fetch base repository through the stable pull-request endpoint"
 for link in review.md review-bugbot.md review-security.md; do
   test -L "$repo_root/$link" || fail "missing legacy compatibility symlink: $link"
 done
