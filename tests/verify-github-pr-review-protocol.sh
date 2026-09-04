@@ -187,6 +187,10 @@ if rg -q '\.html_url == \$manifest\.headRepository\.url' "$protocol"; then
 fi
 rg -q 'gh api "repos/\$GH_REPO/pulls/\$PR_NUMBER"' "$protocol" || fail "protocol does not fetch base repository through the stable pull-request endpoint"
 rg -q '\.clone_url // \.ssh_url' "$protocol" || fail "protocol does not derive the head remote from the REST pull response"
+rg -q 'fetch --no-tags review-base "\$BASE_SHA:refs/remotes/review/base"' "$protocol" || fail "protocol does not fetch the manifest-pinned base SHA"
+if rg -q 'fetch --no-tags review-base "\$BASE_REF:refs/remotes/review/base"' "$protocol"; then
+  fail "protocol treats the moving base branch as the pinned base commit"
+fi
 for link in review.md review-bugbot.md review-security.md; do
   test -L "$repo_root/$link" || fail "missing legacy compatibility symlink: $link"
 done
@@ -203,11 +207,14 @@ printf 'head\n' >"$test_root/fork/changed.txt"
 git -C "$test_root/fork" add changed.txt
 git -C "$test_root/fork" commit -qm head
 head_sha=$(git -C "$test_root/fork" rev-parse HEAD)
+git -C "$test_root/base" commit --allow-empty -qm 'base advanced'
+base_tip_sha=$(git -C "$test_root/base" rev-parse HEAD)
+test "$base_tip_sha" != "$base_sha" || fail "advanced base fixture did not advance main"
 repo="$test_root/repo"; worktree="$test_root/worktree"
 git init -q "$repo"
 git -C "$repo" remote add review-base "$test_root/base"
 git -C "$repo" remote add review-head "$test_root/fork"
-git -C "$repo" fetch --no-tags review-base main:refs/remotes/review/base >/dev/null
+git -C "$repo" fetch --no-tags review-base "$base_sha:refs/remotes/review/base" >/dev/null
 git -C "$repo" fetch --no-tags review-head "$head_sha" >/dev/null
 git -C "$repo" worktree add --detach "$worktree" "$head_sha" >/dev/null
 verify_reuse() {
