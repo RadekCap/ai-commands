@@ -39,6 +39,8 @@ Nothing to do — updates are pulled automatically at the start of every Claude 
 | `/prepare-worktree <number>` | Create isolated git worktree for an issue |
 | `/close-worktree <number>` | Clean up worktree after PR merge |
 | `/copilot-review <pr>` | Process GitHub Copilot review findings |
+| `/ai-review <pr>` | Run the complete self-review, security, CodeRabbit, and Qodo pipeline |
+| `/review` | Choose a Bugbot or security review |
 | `/context` | Show current directory, branch, and todos |
 | `/obsidian-summarize-session` | Summarize Claude Code session as an Obsidian note |
 | `/obsidian-summarize-meeting` | Capture meeting notes as an Obsidian note with diary link |
@@ -61,6 +63,10 @@ Nothing to do — updates are pulled automatically at the start of every Claude 
 2. Optionally add a root `your-skill.md` symlink for older Claude Code installations.
 3. Run `./setup.sh` once on each machine to create the Claude and Codex links.
 4. Commit and push. Subsequent content updates flow through the symlinks.
+
+## Legacy source-command mirrors
+
+Generated `source-command-*` compatibility skills are deprecated. Canonical definitions live only under `skills/`; use those names directly and regenerate compatibility artifacts only when a host product requires them.
 
 ## How auto-sync works
 
