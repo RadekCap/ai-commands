@@ -12,14 +12,27 @@ Use this protocol before a PR review skill reads a diff or edits code. Its outpu
 Resolve the argument (URL, number, or current branch) to `OWNER`, `REPO`, and `PR_NUMBER`, then export `GH_REPO="$OWNER/$REPO"`. Fetch this minimum immutable manifest and save it as `manifest.json`:
 
 ```bash
-if ! PR=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json number,title,state,isDraft,baseRefName,baseRefOid,baseRepository,headRefName,headRefOid,headRepository,headRepositoryOwner,files,additions,deletions,body); then
+if ! PR=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json number,title,state,isDraft,baseRefName,baseRefOid,headRefName,headRefOid,headRepository,headRepositoryOwner,files,additions,deletions,body); then
   echo "Failed to fetch PR manifest." >&2; exit 1
+fi
+if ! BASE_PR=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER"); then
+  echo "Failed to fetch base repository from pull-request endpoint." >&2; exit 1
 fi
 if ! PR_STATE=$(jq -er '.state | strings | select(length > 0)' <<<"$PR") ||
    ! PR_IS_DRAFT=$(jq -er '.isDraft | booleans' <<<"$PR") ||
    ! HEAD_SHA=$(jq -er '.headRefOid | strings | select(length > 0)' <<<"$PR") ||
    ! BASE_SHA=$(jq -er '.baseRefOid | strings | select(length > 0)' <<<"$PR"); then
   echo "Invalid PR manifest: missing state, draft status, base SHA, or head SHA." >&2; exit 1
+fi
+if ! PR=$(jq -ce --arg repo "$GH_REPO" --argjson number "$PR_NUMBER" --arg base "$BASE_SHA" --arg head "$HEAD_SHA" --argjson base_pr "$BASE_PR" '
+  . as $manifest | if ($manifest.number == $number and $manifest.baseRefOid == $base and $manifest.headRefOid == $head and
+      ($base_pr | type == "object" and .number == $number and
+       (.base | type == "object" and .ref == $manifest.baseRefName and .sha == $base and
+        (.repo | type == "object" and (.full_name | ascii_downcase) == ($repo | ascii_downcase) and (.html_url | type == "string" and length > 0))) and
+       (.head | type == "object" and .ref == $manifest.headRefName and .sha == $head and
+        (.repo | type == "object" and .html_url == $manifest.headRepository.url))))
+  then $manifest + {baseRepository:{url:$base_pr.base.repo.html_url}} else error("base pull-request response does not match PR manifest") end' <<<"$PR"); then
+  echo "Invalid or inconsistent base pull-request response." >&2; exit 1
 fi
 if { [ "$PR_STATE" != OPEN ] || [ "$PR_IS_DRAFT" = true ]; } && [ "${REVIEW_NON_OPEN_PR:-}" != 1 ]; then
   echo "Refusing to review PR state $PR_STATE (draft=$PR_IS_DRAFT); explicit user authorization is required." >&2; exit 1
