@@ -28,8 +28,8 @@ page_info() {
 }
 
 pr_is_reviewable() {
-  local state=$1 override=${2:-}
-  [ "$state" = OPEN ] || [ "$override" = 1 ]
+  local state=$1 draft=$2 override=${3:-}
+  { [ "$state" = OPEN ] && [ "$draft" = false ]; } || [ "$override" = 1 ]
 }
 
 validate_qodo_comment_page() {
@@ -62,6 +62,15 @@ index_records() {
   jq -c '.data.repository.pullRequest.reviewThreads.nodes[]? | .comments.nodes[0] as $c | {threadId:.id,commentId:$c.databaseId}'
 }
 
+capture_manifest_valid() {
+  local dir=$1 prefix=$2 scope=$3 page_count n actual manifest
+  manifest="$dir/manifest.json"
+  page_count=$(jq -er --arg scope "$scope" 'if .scope == $scope and (.pageCount | type == "number" and . >= 1) and (.pages == [range(1; .pageCount + 1)]) then .pageCount else error("invalid capture manifest") end' "$manifest") || return 1
+  actual=$(find "$dir" -maxdepth 1 -type f -name "$prefix-*.json" | wc -l) || return 1
+  [ "$actual" -eq "$page_count" ] || return 1
+  for ((n = 1; n <= page_count; n++)); do test -f "$(printf '%s/%s-%04d.json' "$dir" "$prefix" "$n")" || return 1; done
+}
+
 if page_info <<<'{}' >/dev/null 2>&1; then fail "malformed GraphQL response was accepted"; fi
 if page_info <<<'{"errors":[{"message":"partial failure"}],"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}' >/dev/null 2>&1; then fail "GraphQL top-level errors were accepted"; fi
 if page_info <<<'{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":null}}}}}}' >/dev/null 2>&1; then fail "missing continuation cursor was accepted"; fi
@@ -70,10 +79,12 @@ empty_records=$(index_records <<<'{"data":{"repository":{"pullRequest":{"reviewT
 [ -z "$empty_records" ] || fail "empty review-thread page produced unexpected index records"
 if page_info <<<'{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"id":"thread","isResolved":false,"comments":{"nodes":[]}}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}' >/dev/null 2>&1; then fail "partial root-comment node was accepted"; fi
 
-pr_is_reviewable OPEN || fail "open PR was rejected"
-if pr_is_reviewable CLOSED; then fail "closed PR was accepted without authorization"; fi
-if pr_is_reviewable MERGED; then fail "merged PR was accepted without authorization"; fi
-pr_is_reviewable CLOSED 1 || fail "explicit non-open authorization was rejected"
+pr_is_reviewable OPEN false || fail "open non-draft PR was rejected"
+if pr_is_reviewable CLOSED false; then fail "closed PR was accepted without authorization"; fi
+if pr_is_reviewable MERGED false; then fail "merged PR was accepted without authorization"; fi
+if pr_is_reviewable OPEN true; then fail "draft PR was accepted without authorization"; fi
+pr_is_reviewable CLOSED false 1 || fail "explicit non-open authorization was rejected"
+pr_is_reviewable OPEN true 1 || fail "explicit draft authorization was rejected"
 
 validate_qodo_comment_page <<<'[]' || fail "empty Qodo comment terminal page was rejected"
 qodo_comment_page_is_terminal <<<'[]' || fail "empty Qodo comment page did not terminate capture"
@@ -99,6 +110,17 @@ jq -e '.bodyLength == 601 and .bodyTruncated == true and (.body|length) == 600' 
 index="$test_root/findings.ndjson"; complete="$test_root/complete"
 : >"$index"; : >"$complete"
 test -f "$index" && test -f "$complete" || fail "valid empty index is not restart-safe"
+
+collection="$test_root/collection"; mkdir "$collection"
+printf '{"scope":"threads:test","pageCount":2,"pages":[1,2]}\n' >"$collection/manifest.json"
+printf '[]\n' >"$collection/page-0001.json"
+printf '[]\n' >"$collection/page-0002.json"
+capture_manifest_valid "$collection" page threads:test || fail "complete numbered page set was rejected"
+rm "$collection/page-0001.json"
+if capture_manifest_valid "$collection" page threads:test; then fail "missing first page was accepted for reuse"; fi
+printf '[]\n' >"$collection/page-0001.json"
+printf '[]\n' >"$collection/page-0003.json"
+if capture_manifest_valid "$collection" page threads:test; then fail "orphan later page was accepted for reuse"; fi
 
 git init -q -b main "$test_root/base"
 git -C "$test_root/base" config user.email test@example.invalid
