@@ -21,6 +21,24 @@ Usage: `/implement-issue <github-number|JIRA-KEY>`
 
 6. When approved, create a focused commit and pull request. Reference the issue, use the repository PR template, derive AI attribution from the active runtime, and stage explicit files only; never use `git add .`.
 
+## Required Jira Handoff After a PR
+
+For a Jira-backed issue, creating the PR does not finish the workflow. Before
+the final handoff, review the Jira issue's current status, formal links, and
+existing comments to avoid duplicates. Then present a **pending external
+actions** checklist. If the repository requires them, it must explicitly name:
+
+- the proposed status transition (for example, `In Progress`);
+- attaching the new PR as a formal Jira remote link; and
+- the progress comment linking the PR and summarizing the change.
+
+Ask for one bundled, explicit approval that lists every proposed Jira
+mutation. Do not treat approval to commit, push, create a PR, or post a
+different Jira comment as approval for these actions. After approval, perform
+and verify each action. Do not show a finished/completion banner while a
+required action is pending; report it as pending and obtain explicit approval,
+or record that the user explicitly declined it.
+
 ## Quality and efficiency
 
 - Read before editing and follow existing patterns.
