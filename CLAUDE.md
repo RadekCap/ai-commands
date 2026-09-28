@@ -98,14 +98,11 @@ When executing a slash command (skill), print clear banners so the user can quic
 
 Before executing any multi-step task or workflow:
 
-1. **Restate understanding**: Briefly explain how you understood the user's instructions
-2. **State your plan**: List what you're going to do (steps, tools, target repos)
-3. **Stop and wait**: Do NOT make any tool calls, edits, or commands. End your message after steps 1–2 and wait for the user to explicitly confirm (e.g., "go", "yes", "proceed"). Silence or a new user message is not confirmation.
+1. **Restate and plan**: Briefly explain the user's goal and state a concise plan.
+2. **Proceed when clear**: If the scope is clear and the requested work is reversible, proceed without waiting for a separate confirmation.
+3. **Ask when needed**: Ask for clarification when requirements are ambiguous. Get explicit approval before destructive or irreversible actions, or actions with external side effects, unless the user has already authorized that specific action.
 
-This applies to:
-- Slash commands and skills (e.g., `/implement-issue`, `/prepare-worktree`)
-- Any task involving multiple tools, git operations, or external API calls
-- Work that spans multiple repositories or branches
+This applies to multi-step tasks, including slash commands, Git workflows, external API calls, and work across repositories or branches.
 
 **Skill invocation rule**: When the user references a skill or slash command by name, **always invoke it via the Skill tool**. Never read the skill file and manually approximate its steps — the skill exists precisely to ensure consistent execution. If you need to deviate from a skill's steps, explain why and get confirmation first.
 
