@@ -17,7 +17,7 @@ Usage: `/implement-issue <github-number|JIRA-KEY>`
 
 4. Run the narrowest relevant formatter and verification commands. Diagnose failures from evidence. Stop and ask before repeating a failure without a new hypothesis or expanding the test scope.
 
-5. Report the changed files and actual verification results. Obtain separate approval before Jira status changes or remote-link mutations; approval to commit, push, or create a PR does not automatically approve Jira mutations.
+5. Report the changed files and actual verification results. Obtain explicit approval before Jira mutations, including status changes, remote-link changes, description edits, or comments. Approval to commit, push, or create a PR does not automatically approve Jira mutations.
 
 6. When approved, create a focused commit and pull request. Reference the issue, use the repository PR template, derive AI attribution from the active runtime, and stage explicit files only; never use `git add .`.
 
@@ -25,18 +25,32 @@ Usage: `/implement-issue <github-number|JIRA-KEY>`
 
 For Jira-backed issues, use this sequence:
 
-1. Start implementation: after the user approves implementation, transition
-   the issue to `In Progress` and verify the transition before changing code.
-2. After creating the PR: re-read the issue's current status and formal remote
-   links. If the PR is not already linked, add it as a formal Jira web link.
-3. After the PR link is added, transition the issue to `Review` and verify the
-   final status.
+1. Start implementation: after the user approves implementation, obtain
+   separate approval for the Jira status change, then transition the issue to
+   `In Progress` and verify it before changing code.
+2. After creating the PR: re-read the issue's current status, description,
+   formal remote links, and visibility. For every PR, ensure it appears in both
+   places:
+   - Add a formal Jira web link if that PR URL is not already present.
+   - Add a clickable PR link to a `Pull requests` section in the issue
+     description if it is not already present. Preserve the existing
+     description and update that section idempotently; use the Jira v3
+     description format rather than replacing the description with plain text.
+3. Re-read the issue and verify every PR appears as both a formal web link and
+   in the description. A Jira comment may supplement these links when requested
+   or required by repository instructions, but a comment never substitutes for
+   either destination.
+4. After both link destinations are verified, re-read the issue status. If it
+   is not already `Review`, transition it to `Review`; verify the final status.
 
-Request explicit approval for the relevant Jira mutations. Approval to commit,
+Before post-PR Jira mutations, show the exact PR URLs and the planned
+description, web-link, comment, and status changes, then obtain explicit
+approval. One approval may cover the listed mutations. Approval to commit,
 push, or create a PR does not automatically approve Jira mutations. Check the
-issue's existing links before adding the PR to prevent duplicates. Do not show
-a finished/completion banner while an approved Jira action is pending; report
-it as pending and obtain explicit approval, or record that the user declined it.
+issue's existing description and links before updating them to prevent
+duplicates. Preserve the issue's visibility for every mutation. Do not show a
+finished/completion banner while an approved Jira action is pending; report it
+as pending and obtain explicit approval, or record that the user declined it.
 
 ## Quality and efficiency
 
