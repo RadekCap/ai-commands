@@ -128,6 +128,11 @@ tools. This overrides Claude Code's built-in default of appending
 - Some repos enforce this automatically (e.g. `stolostron/*` via a CodeRabbit
   `ai-attribution` check in `.coderabbit.yaml`).
 
+## GitHub operations
+
+- Never use a browser or web browsing tools for GitHub work; browser access is blocked in this environment.
+- Always use the `gh` CLI to inspect or operate on GitHub pull requests, issues, comments, checks, and repository data.
+
 ## Jira API access
 
 Credentials are stored in `~/.claude/credentials.json` under the `jira` key. **Always** use this exact pattern:
